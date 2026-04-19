@@ -2,10 +2,11 @@
 
 import { LogOut, Plus, User } from "lucide-react";
 import { useUserStore } from "../store/useUserStore";
-import { motion } from 'framer-motion';
-import { useEffect } from "react";
+import { AnimatePresence, motion } from 'framer-motion';
+import { useEffect, useState } from "react";
 import { useRouter } from 'next/navigation';
 import { useGameStore } from "../store/useGameStore";
+import CreateRoomModal from "../components/room/CreateRoomModal";
 
 /* TODO DB에서 가져온 정보로 해야함 */
 const rooms = [
@@ -19,6 +20,19 @@ export default function RoomListPage() {
     const { username, logout, isLoggedIn } = useUserStore();
     const { currentRoom, setCurrentRoom } = useGameStore();
     const router = useRouter();
+
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+    const handleCreateRoom = (data: { title: string, maxPlayers: number }) => {
+        console.log('방 생성 데이터');
+        
+        // TODO: 실제 방 생성 API 호출 (POST /api/rooms)
+        // TODO: 생성된 방의 ID를 받아옴
+        const mockRoomId = 'new-room-' + Math.floor(Math.random() * 1000);
+
+        // 3. 해당 방의 대기실로 이동
+        router.push(`/game/${mockRoomId}`);
+    }
 
     const handleJoinRoom = (room: typeof rooms[0]) => {
         // 1. 방이 꽉 찼는지 확인
@@ -59,11 +73,25 @@ export default function RoomListPage() {
 
             {/* 방생성 버튼 & 검색바 */}
             <div className="max-w-6xl mx-auto mb-8 flex flex-col md:flex-row gap-4">
-                <button className="border-2 border-dashed border-[#333] p-6 rounded-3xl flex flex-col items-center justify-center gap-2 hover:border-[#FFD700] hover:bg-[#FFD700]/5 transition-all group">
+                <button 
+                    className="border-2 border-dashed border-[#333] p-6 rounded-3xl flex flex-col items-center justify-center gap-2 hover:border-[#FFD700] hover:bg-[#FFD700]/5 transition-all group"
+                    onClick={() => setIsCreateModalOpen(true)}    
+                >
                     <Plus className="text-[#333] group-hover:text-[#FFD700]" size={40} />
                     <span className="font-bold text-[#333] group-hover:text-[#FFD700]">새로운 방 만들기</span>
                 </button>
             </div>
+
+            {/* 방 생성 모달 */}
+            <AnimatePresence>
+                {isCreateModalOpen && (
+                    <CreateRoomModal
+                        onClose={() => setIsCreateModalOpen(false)}
+                        onCreate={handleCreateRoom}
+                    >
+                    </CreateRoomModal>
+                )}
+            </AnimatePresence>
 
             <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {rooms.map((room) => {
