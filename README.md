@@ -11,12 +11,14 @@ Animation: Framer Motion
 State Management: Zustand
 
 Icons: Lucide React
+------------------------------------------------------------------------------------
 
 📅 작업 로그 (2026-04-19)
 1. 프로젝트 기초 공사 완료
 Next.js App Router 기반의 디렉토리 구조 설계 (src/app, src/components, src/store 등).
 
 전역 상태 관리를 위한 Zustand 스토어 초기 설정 (useUserStore, useGameStore).
+
 
 2. UI/UX 개발
 메인 화면 (Start Page): Framer Motion을 활용한 애니메이션 타이틀과 메뉴 구성.
@@ -27,11 +29,13 @@ Next.js App Router 기반의 디렉토리 구조 설계 (src/app, src/components
 
 게임 대기실 (Game Lobby): [id] 동적 라우팅을 적용한 실시간 대기 공간 UI 설계 (플레이어 목록, 채팅창, 레디 시스템).
 
+
 3. 주요 해결 이슈
 동적 라우팅 해결: /game/[id] 구조를 통해 특정 방 입장이 안 되던 404 에러 해결 및 파라미터 수신 로직 구현.
 
 반응형 최적화: Tailwind CSS의 Breakpoints를 활용하여 모바일 터치 환경과 데스크탑 뷰 최적화.
 
+------------------------------------------------------------------------------------
 🚀 다음 할 일 (To-Do)
 ✅ Phase 1: 실시간 통신 및 데이터베이스
 [ ] Socket.io 서버 구축: 방 입장, 준비 상태(Ready), 채팅 실시간 동기화.
