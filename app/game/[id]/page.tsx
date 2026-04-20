@@ -10,7 +10,7 @@ import { useUserStore } from "../../store/useUserStore";
 
 export default function GameLobbyPage() {
     const params = useParams(); // URL에서 room id 추출
-    const { username } = useUserStore();
+    const { userId } = useUserStore();
     const [isReady, setIsReady] = useState(false);
 
     // 가상의 플레이어 목록 (나중엔 Socket.io로 실시간 동기화)

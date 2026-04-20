@@ -17,21 +17,31 @@ const rooms = [
 
 
 export default function RoomListPage() {
-    const { username, logout, isLoggedIn } = useUserStore();
+    const { userId, logout, isLoggedIn } = useUserStore();
     const { currentRoom, setCurrentRoom } = useGameStore();
     const router = useRouter();
 
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-    const handleCreateRoom = (data: { title: string, maxPlayers: number }) => {
-        console.log('방 생성 데이터');
-        
-        // TODO: 실제 방 생성 API 호출 (POST /api/rooms)
-        // TODO: 생성된 방의 ID를 받아옴
-        const mockRoomId = 'new-room-' + Math.floor(Math.random() * 1000);
+    const handleCreateRoom = async (data: { title: string, maxPlayers: number }) => {
+        try {
+            const response = await fetch('/api/rooms', {
+                method: 'POST',
+                body: JSON.stringify({
+                    ...data,
+                    hostId: userId // Zustand에서 가져온 유저 ID
+                }),
+            });
 
-        // 3. 해당 방의 대기실로 이동
-        router.push(`/game/${mockRoomId}`);
+            const result = await response.json();
+
+            if (result.success) {
+                router.push(`/game/${result.roomId}`); // 실제 생성된 DB ID로 이동
+            }
+        } catch (err) {
+            console.error('방 생성 실패:', err);
+        }
+
     }
 
     const handleJoinRoom = (room: typeof rooms[0]) => {
@@ -61,7 +71,7 @@ export default function RoomListPage() {
             <header className="max-w-6xl mx-auto flex justify-between items-center mb-10">
                 <div>
                     <h1 className="text-2xl md:text-3xl font-black text-[#FFD700]">LOBBY</h1>
-                    <p className="text-gray-400 text-sm">Welcome, <span className="text-white font-bold">{username || 'Guest'}</span></p>
+                    <p className="text-gray-400 text-sm">Welcome, <span className="text-white font-bold">{userId || 'Guest'}</span></p>
                 </div>
                 <button
                     onClick={logout}
@@ -73,9 +83,9 @@ export default function RoomListPage() {
 
             {/* 방생성 버튼 & 검색바 */}
             <div className="max-w-6xl mx-auto mb-8 flex flex-col md:flex-row gap-4">
-                <button 
+                <button
                     className="border-2 border-dashed border-[#333] p-6 rounded-3xl flex flex-col items-center justify-center gap-2 hover:border-[#FFD700] hover:bg-[#FFD700]/5 transition-all group"
-                    onClick={() => setIsCreateModalOpen(true)}    
+                    onClick={() => setIsCreateModalOpen(true)}
                 >
                     <Plus className="text-[#333] group-hover:text-[#FFD700]" size={40} />
                     <span className="font-bold text-[#333] group-hover:text-[#FFD700]">새로운 방 만들기</span>
