@@ -2,6 +2,25 @@ import { poolPromise } from "@/app/lib/db";
 import sql from 'mssql';
 import { NextResponse } from "next/server";
 
+
+// 방 목록 화면이 열릴 때 호출
+export async function GET() {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .query(`
+                SELECT id, title, maxPlayers, hostId, status, createdAt
+                FROM Rooms 
+                WHERE status = 'waiting' 
+                ORDER BY createdAt DESC
+            `);
+
+        return NextResponse.json({success: true, rooms: result.recordset });
+    } catch (err: any) {
+        return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    }    
+}
+
 export async function POST(request: Request) {
     try {
         const { title, maxPlayers, hostId } = await request.json();
