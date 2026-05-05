@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from 'next/navigation';
 import { useGameStore } from "../store/useGameStore";
 import CreateRoomModal from "../components/room/CreateRoomModal";
+import { useRoomStore } from "../store/useRoomStore";
 
 /* TODO DB에서 가져온 정보로 해야함 */
 const rooms = [
@@ -17,11 +18,17 @@ const rooms = [
 
 
 export default function RoomListPage() {
+    const { rooms, fetchRooms } = useRoomStore();
     const { userId, logout, isLoggedIn } = useUserStore();
     const { currentRoom, setCurrentRoom } = useGameStore();
     const router = useRouter();
 
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+    useEffect(() => {
+        console.log("방목록 조회");
+        fetchRooms(); // 컴포넌트 마운트 시 DB에서 SELECT
+    }, [fetchRooms]);
 
     const handleCreateRoom = async (data: { title: string, maxPlayers: number }) => {
         try {
@@ -118,7 +125,7 @@ export default function RoomListPage() {
                                 </div>
                                 <div className="flex items-center text-gray-400 text-sm gap-1">
                                     <User size={14} />
-                                    <span>{room.players.length} / {room.maxPlayers}</span>
+                                    <span>{room.players} / {room.maxPlayers}</span>
                                 </div>
                             </div>
 

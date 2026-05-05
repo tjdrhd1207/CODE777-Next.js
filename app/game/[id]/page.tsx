@@ -2,25 +2,52 @@
 
 import { CheckCircle2, MessageSquare, PlayIcon, ShieldCheck, User } from "lucide-react";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from 'framer-motion';
 import { useUserStore } from "../../store/useUserStore";
+import { Socket, io } from "socket.io-client";
 
 
+let socket: Socket;
 
 export default function GameLobbyPage() {
     const params = useParams(); // URL에서 room id 추출
-    const { userId } = useUserStore();
+    const roomId = params.id;
+    const { userId, userName } = useUserStore();
     const [isReady, setIsReady] = useState(false);
+    const [players, setPlayers] = useState([]);
+
+    useEffect(() => {
+        // 1. 소켓 연결
+        socket = io('http://localhost:3001'); // 백엔드 주소
+
+        // 2. 방 입장 알림
+        socket.emit('join_room', {roomId, userId, userName});
+
+        // 3. 서버로부터 플레이어 목록 업데이트 받기
+        socket.on('update_player_list', (updatedPlayers) => {
+            setPlayers(updatedPlayers);
+        });
+
+        return () => {
+            socket.emit('leave_room', { roomId, userId });
+            socket.off('update_player_list');
+            socket.disconnect();
+        }
+    }, [roomId, userId]);
 
     // 가상의 플레이어 목록 (나중엔 Socket.io로 실시간 동기화)
-    const [players, setPlayers] = useState([
+    /* const [players, setPlayers] = useState([
         { id: '1', name: '나', isReady: false, isHost: true },
         { id: '2', name: '김철수', isReady: true, isHost: false },
         { id: '3', name: '이영희', isReady: false, isHost: false },
-    ]);
+    ]); */
 
-
+    const handleReady = () => {
+        const nextReadyState = !isReady;
+        setIsReady(nextReadyState);
+        socket.emit('player_ready', {roomId, userId, isReady: nextReadyState });
+    }
 
     return (
         <div className="min-h-screen common-bg-style text-white flex flex-col">
@@ -94,7 +121,7 @@ export default function GameLobbyPage() {
                     {/* 준비 시작 버튼 섹션 */}
                     <div className="flex gap-3">
                         <button
-                            onClick={() => setIsReady(!isReady)}
+                            onClick={() => handleReady()}
                             className={`flex-1 py-5 rounded-2xl font-black text-lg transition-all active:scale-95 ${isReady ? 'bg-green-600 text-white' : 'bg-[#333] text-gray-300 hover:bg-[#444]'
                                 }`}
                         >

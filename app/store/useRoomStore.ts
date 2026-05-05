@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 
 interface Room {
-  id: number;
+  id: string;
   title: string;
+  players: string[];
   maxPlayers: number;
   hostId: number;
-  status: string;
+  status: 'playing' | 'waiting';
 }
 
 interface RoomState {
