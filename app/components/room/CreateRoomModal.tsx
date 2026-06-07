@@ -4,17 +4,17 @@ import { useState } from "react";
 
 interface CreateRoomModalProps {
     onClose: () => void;
-    onCreate: (roomData: { title: string, maxPlayers: number }) => void;
+    onCreate: (roomData: { name: string, capacity: number }) => void;
 }
 
 export default function CreateRoomModal({ onClose, onCreate }: CreateRoomModalProps) {
-    const [title, setTitle] = useState('');
-    const [maxPlayers, setMaxPlayers] = useState(3);
+    const [name, setName] = useState('');
+    const [capacity, setCapacity] = useState(3);
 
     const handleSubmit = (e: React.SubmitEvent) => {
         e.preventDefault();
-        if (!title.trim()) return alert('방 제목을 입력해주세요');
-        onCreate({ title, maxPlayers });
+        if (!name.trim()) return alert('방 제목을 입력해주세요');
+        onCreate({ name, capacity });
     }
 
 
@@ -53,8 +53,8 @@ export default function CreateRoomModal({ onClose, onCreate }: CreateRoomModalPr
                             <input
                                 autoFocus
                                 type="text"
-                                value={title}
-                                onChange={(e) => setTitle(e.target.value)}
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
                                 placeholder="친구들과 함께할 방 제목을 입력하세요"
                                 className="w-full bg-[#111] border border-[#333] rounded-2xl p-4 text-white focus:outline-none focus:border-[#FFD700] transition-all"
                             />
@@ -71,9 +71,9 @@ export default function CreateRoomModal({ onClose, onCreate }: CreateRoomModalPr
                                         key={num}
                                         type="button"
                                         disabled={num === 2 || num === 4}
-                                        onClick={() => setMaxPlayers(num)}
-                                        className={`py-4 rounded-2xl font-bold flex flex-col items-center justify-center gap-1 border-2 transition-all 
-                                            ${maxPlayers === num
+                                        onClick={() => setCapacity(num)}
+                                        className={`py-4 rounded-2xl font-bold flex flex-col items-center justify-center gap-1 border-2 transition-all
+                                            ${capacity === num
                                                 ? 'border-[#FFD700] bg-[#FFD700]/10 text-[#FFD700]'
                                                 : 'border-[#333] bg-[#111] text-gray-500 hover:border-[#444]'
                                             }

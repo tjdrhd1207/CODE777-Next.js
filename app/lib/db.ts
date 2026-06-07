@@ -6,7 +6,7 @@ const config = {
   // 서버 주소가 제대로 안 들어오면 로컬 호스트를 기본값으로 사용
   server: process.env.DB_SERVER || '127.0.0.1', 
   database: process.env.DB_DATABASE,
-  port: 1433, 
+  port: process.env.DB_SERVER_PORT ? parseInt(process.env.DB_SERVER_PORT) : 1433, // 포트도 환경변수로 설정 가능, 기본값은 1433
   options: {
     // 로컬 MSSQL은 SSL 설정을 안 하는 경우가 많으므로 false 권장
     encrypt: false, 

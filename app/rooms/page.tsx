@@ -9,13 +9,6 @@ import { useGameStore } from "../store/useGameStore";
 import CreateRoomModal from "../components/room/CreateRoomModal";
 import { useRoomStore } from "../store/useRoomStore";
 
-/* TODO DB에서 가져온 정보로 해야함 */
-const rooms = [
-    { id: 'room-1', title: '777 고수만 오세요', players: ['user1', 'user2'], maxPlayers: 4, status: 'waiting' as const },
-    { id: 'room-2', title: '초보 환영!', players: ['user3'], maxPlayers: 4, status: 'waiting' as const },
-    { id: 'room-3', title: '초보 환영123!', players: ['user3'], maxPlayers: 4, status: 'playing' as const },
-];
-
 
 export default function RoomListPage() {
     const { rooms, fetchRooms } = useRoomStore();
@@ -30,30 +23,28 @@ export default function RoomListPage() {
         fetchRooms(); // 컴포넌트 마운트 시 DB에서 SELECT
     }, [fetchRooms]);
 
-    const handleCreateRoom = async (data: { title: string, maxPlayers: number }) => {
+    const handleCreateRoom = async (data: { name: string, capacity: number }) => {
         try {
             const response = await fetch('/api/rooms', {
                 method: 'POST',
-                body: JSON.stringify({
-                    ...data,
-                    hostId: userId // Zustand에서 가져온 유저 ID
-                }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...data, hostId: userId }),
             });
 
             const result = await response.json();
 
             if (result.success) {
-                router.push(`/game/${result.roomId}`); // 실제 생성된 DB ID로 이동
+                router.push(`/game/${result.roomSeq}`);
             }
+
         } catch (err) {
             console.error('방 생성 실패:', err);
         }
-
     }
 
     const handleJoinRoom = (room: typeof rooms[0]) => {
         // 1. 방이 꽉 찼는지 확인
-        if (room.players.length >= room.maxPlayers) {
+        if (room.players >= room.capacity) {
             alert('방이 꽉찼습니다.');
             return;
         }
@@ -62,7 +53,7 @@ export default function RoomListPage() {
         setCurrentRoom(room);
 
         // 3. 게임 페이지 이동
-        router.push(`/game/${room.id}`);
+        router.push(`/game/${room.room_seq}`);
     }
 
     useEffect(() => {
@@ -114,18 +105,20 @@ export default function RoomListPage() {
                 {rooms.map((room) => {
                     return (
                         <motion.div
-                            key={room.id}
+                            key={room.room_seq}
                             whileHover={{ y: -5 }}
                             className="bg-[#1e1e1e] border border-[#333] p-6 rounded-2xl flex flex-col justify-between h-48 hover:border-[#FFD700]/50 transition-colors"
                         >
                             <div>
                                 <div className="flex justify-between items-start mb-2">
-                                    <h3 className="text-lg font-bold truncate pr-4">{room.title}</h3>
-                                    <span className={`text-[10px] uppercase px-2 py-1 rounded font-bold ${room.status === 'playing' ? 'bg-gray-700 text-gray-400' : 'bg-green-500/20 text-green-500'}`}>{room.status === 'playing' ? 'Playing' : 'Wait'}</span>
+                                    <h3 className="text-lg font-bold truncate pr-4">{room.name}</h3>
+                                    <span className={`text-[10px] uppercase px-2 py-1 rounded font-bold ${room.status === 'playing' ? 'bg-gray-700 text-gray-400' : 'bg-green-500/20 text-green-500'}`}>
+                                        {room.status === 'playing' ? 'Playing' : 'Wait'}
+                                    </span>
                                 </div>
                                 <div className="flex items-center text-gray-400 text-sm gap-1">
                                     <User size={14} />
-                                    <span>{room.players} / {room.maxPlayers}</span>
+                                    <span>{room.players ?? 0} / {room.capacity}</span>
                                 </div>
                             </div>
 

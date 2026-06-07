@@ -1,12 +1,5 @@
 import { create } from "zustand";
-
-interface Room {
-  id: string;
-  title: string;
-  players: string[];
-  maxPlayers: number;
-  status: 'waiting' | 'playing';
-}
+import { Room } from "./useRoomStore";
 
 interface GameState {
     currentRoom: Room | null;
