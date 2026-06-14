@@ -2,6 +2,7 @@ const { createServer } = require("http");
 const next = require("next");
 const { parse } = require("url");
 const { Server } = require('socket.io');
+const { generateDeck, shuffleDeck, QUESTION_CARDS } = require('./lib/cards');
 
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
@@ -11,6 +12,8 @@ const handle = app.getRequestHandler();
 const rooms = new Map();
 // socketId -> { roomId, userId }
 const socketToRoom = new Map();
+// roomId -> 게임 상태
+const gameStates = new Map();
 
 app.prepare().then(() => {
     const httpServer = createServer((req, res) => {
@@ -42,6 +45,7 @@ app.prepare().then(() => {
 
             console.log(`[join] ${userName}(${userId}) → room ${roomIdStr}`);
             io.to(roomIdStr).emit('update_player_list', players);
+            broadcastRoomList(); // 방 인원 변경 → 로비에 있는 모든 클라이언트에게 push
         });
 
         socket.on('leave_room', ({ roomId, userId }) => {
@@ -77,7 +81,69 @@ app.prepare().then(() => {
                 leaveRoom(socket, info.roomId, info.userId);
             }
         });
-    });
+
+        // 클라이언트가 로비에 처음 접속할 때 현재 인원수를 요청하는 용도
+        socket.on('get_room_list', () => {
+            broadcastRoomList();
+        });
+
+        socket.on('start_game', ({ roomId }) => {
+            const roomIdStr = String(roomId);
+            const players = rooms.get(roomIdStr);
+            if (!players) return;
+
+            // 방장만 시작 가능 (콘솔에서 직접 emit하는 경우 방어)
+            const requester = players.find(p => p.socketId === socket.id);
+            if (!requester?.isHost) return;
+
+            // 타일 덱 생성 및 셔플
+            const deck = shuffleDeck(generateDeck());
+
+            // 각 플레이어 + NPC 받침대에 3장씩 배분
+            const stands = {};
+            players.forEach(p => {
+                stands[p.userId] = deck.splice(0, 3);
+            });
+            stands['npc'] = deck.splice(0, 3);
+
+            // 질문 카드 셔플
+            const questionDeck = shuffleDeck([...QUESTION_CARDS]);
+
+            // 게임 상태 저장
+            const gameState = {
+                status: 'playing',
+                stands,
+                tileDeck: deck,
+                tileDiscards: [],
+                questionDeck,
+                questionDiscards: [],
+                scores: Object.fromEntries(players.map(p => [p.userId, 0])),
+                currentTurnIndex: 0,
+                playerOrder: players.map(p => p.userId),
+            };
+            gameStates.set(roomIdStr, gameState);
+
+            // 각 플레이어에게 다른 payload 전송 (자기 타일은 제외)
+            players.forEach(player => {
+                const visibleStands = {};
+                Object.entries(stands).forEach(([uid, tiles]) => {
+                    if (uid !== player.userId) {
+                        visibleStands[uid] = tiles;
+                    }
+                });
+
+                io.to(player.socketId).emit('game_started', {
+                    visibleStands,  // 상대방 + NPC 받침대
+                    scores: gameState.scores,
+                    currentTurn: gameState.playerOrder[0],
+                    playerOrder: players.map(p => ({ userId: p.userId, userName: p.userName })),
+                });
+            });
+
+            console.log(`[game] Room ${roomIdStr} started`);
+        });
+
+    }); // io.on('connection') 닫기
 
     function leaveRoom(socket, roomId, userId) {
         const players = rooms.get(roomId);
@@ -94,6 +160,7 @@ app.prepare().then(() => {
 
         if (players.length === 0) {
             rooms.delete(roomId);
+            broadcastRoomList(); // 방이 비어서 삭제됐을 때도 갱신
             return;
         }
 
@@ -103,6 +170,16 @@ app.prepare().then(() => {
         }
 
         io.to(roomId).emit('update_player_list', players);
+        broadcastRoomList(); // 방 인원 변경 → 로비에 있는 모든 클라이언트에게 push
+    }
+
+    // 현재 rooms Map의 인원수를 모든 클라이언트에게 broadcast
+    function broadcastRoomList() {
+        const roomList = Array.from(rooms.entries()).map(([roomId, players]) => ({
+            roomId,
+            playerCount: players.length,
+        }));
+        io.emit('room_list_updated', roomList);
     }
 
     const PORT = 3000;

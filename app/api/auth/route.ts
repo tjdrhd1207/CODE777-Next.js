@@ -8,7 +8,7 @@ export async function POST(request: Request) {
         const pool = await poolPromise;
 
         const userResult = await pool.request()
-            .input('username', sql.VarChar, username)
+            .input('username', sql.NVarChar, username)
             .query('SELECT * FROM users WHERE id = @username');
 
         const userExists = userResult.recordset.length > 0;
@@ -18,8 +18,8 @@ export async function POST(request: Request) {
                 return NextResponse.json({ success: false, message: '이미 사용 중인 아이디입니다.' }, { status: 409 });
             }
             const insertResult = await pool.request()
-                .input('username', sql.VarChar, username)
-                .input('password', sql.VarChar, password)
+                .input('username', sql.NVarChar, username)
+                .input('password', sql.NVarChar, password)
                 .query('INSERT INTO users (id, password) OUTPUT INSERTED.id VALUES (@username, @password)');
 
             return NextResponse.json({

@@ -3,24 +3,46 @@
 import { LogOut, Plus, User } from "lucide-react";
 import { useUserStore } from "../store/useUserStore";
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from 'next/navigation';
 import { useGameStore } from "../store/useGameStore";
 import CreateRoomModal from "../components/room/CreateRoomModal";
 import { useRoomStore } from "../store/useRoomStore";
+import { Socket, io } from "socket.io-client";
 
 
 export default function RoomListPage() {
-    const { rooms, fetchRooms } = useRoomStore();
+    const { rooms, fetchRooms, updatePlayerCount } = useRoomStore();
     const { userId, logout, isLoggedIn } = useUserStore();
     const { currentRoom, setCurrentRoom } = useGameStore();
     const router = useRouter();
+    const socketRef = useRef<Socket | null>(null);
 
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
     useEffect(() => {
-        console.log("방목록 조회");
-        fetchRooms(); // 컴포넌트 마운트 시 DB에서 SELECT
+        // 1) DB에서 방 목록 초기 로드
+        fetchRooms();
+
+        // 2) 소켓 연결 후 현재 인원수 요청
+        const socket = io('http://localhost:3000');
+        socketRef.current = socket;
+
+        socket.on('connect', () => {
+            socket.emit('get_room_list'); // 접속 즉시 현재 인원수 받아오기
+        });
+
+        // 3) 누군가 입장/퇴장할 때마다 서버가 push → 인원수만 갱신
+        socket.on('room_list_updated', (updatedList: { roomId: string; playerCount: number }[]) => {
+            updatedList.forEach(({ roomId, playerCount }) => {
+                updatePlayerCount(Number(roomId), playerCount);
+            });
+        });
+
+        return () => {
+            socket.disconnect();
+            socketRef.current = null;
+        };
     }, [fetchRooms]);
 
     const handleCreateRoom = async (data: { name: string, capacity: number }) => {

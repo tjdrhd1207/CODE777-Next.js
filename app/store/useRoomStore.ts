@@ -13,6 +13,7 @@ export interface Room {
 interface RoomState {
   rooms: Room[];
   fetchRooms: () => Promise<void>;
+  updatePlayerCount: (roomSeq: number, playerCount: number) => void;
 }
 
 export const useRoomStore = create<RoomState>((set) =>({
@@ -23,5 +24,13 @@ export const useRoomStore = create<RoomState>((set) =>({
         if (data.success) {
             set({ rooms: data.rooms });
         }
+    },
+    // 소켓에서 받은 실시간 인원수를 해당 방에만 반영
+    updatePlayerCount: (roomSeq, playerCount) => {
+        set((state) => ({
+            rooms: state.rooms.map((room) =>
+                room.room_seq === roomSeq ? { ...room, players: playerCount } : room
+            ),
+        }));
     },
 }));
