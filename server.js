@@ -1,8 +1,10 @@
-const { createServer } = require("http");
-const next = require("next");
-const { parse } = require("url");
-const { Server } = require('socket.io');
-const { generateDeck, shuffleDeck, QUESTION_CARDS } = require('./lib/cards');
+import { createServer } from "http";
+import next from "next";
+import { parse } from "url";
+import { Server } from 'socket.io';
+import { generateDeck, shuffleDeck, QUESTION_CARDS } from './lib/cards.js';
+import { evaluate, checkAnswer } from './lib/ruleEngine.js';
+import { sql, poolPromise } from './lib/db.js';
 
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
@@ -45,7 +47,11 @@ app.prepare().then(() => {
 
             console.log(`[join] ${userName}(${userId}) → room ${roomIdStr}`);
             io.to(roomIdStr).emit('update_player_list', players);
-            broadcastRoomList(); // 방 인원 변경 → 로비에 있는 모든 클라이언트에게 push
+            broadcastRoomList();
+
+            if (isHost) {
+                io.emit('rooms_changed');
+            }
         });
 
         socket.on('leave_room', ({ roomId, userId }) => {
@@ -82,7 +88,6 @@ app.prepare().then(() => {
             }
         });
 
-        // 클라이언트가 로비에 처음 접속할 때 현재 인원수를 요청하는 용도
         socket.on('get_room_list', () => {
             broadcastRoomList();
         });
@@ -92,24 +97,19 @@ app.prepare().then(() => {
             const players = rooms.get(roomIdStr);
             if (!players) return;
 
-            // 방장만 시작 가능 (콘솔에서 직접 emit하는 경우 방어)
             const requester = players.find(p => p.socketId === socket.id);
             if (!requester?.isHost) return;
 
-            // 타일 덱 생성 및 셔플
             const deck = shuffleDeck(generateDeck());
 
-            // 각 플레이어 + NPC 받침대에 3장씩 배분
             const stands = {};
             players.forEach(p => {
                 stands[p.userId] = deck.splice(0, 3);
             });
             stands['npc'] = deck.splice(0, 3);
 
-            // 질문 카드 셔플
             const questionDeck = shuffleDeck([...QUESTION_CARDS]);
 
-            // 게임 상태 저장
             const gameState = {
                 status: 'playing',
                 stands,
@@ -123,7 +123,6 @@ app.prepare().then(() => {
             };
             gameStates.set(roomIdStr, gameState);
 
-            // 각 플레이어에게 다른 payload 전송 (자기 타일은 제외)
             players.forEach(player => {
                 const visibleStands = {};
                 Object.entries(stands).forEach(([uid, tiles]) => {
@@ -133,7 +132,7 @@ app.prepare().then(() => {
                 });
 
                 io.to(player.socketId).emit('game_started', {
-                    visibleStands,  // 상대방 + NPC 받침대
+                    visibleStands,
                     scores: gameState.scores,
                     currentTurn: gameState.playerOrder[0],
                     playerOrder: players.map(p => ({ userId: p.userId, userName: p.userName })),
@@ -150,12 +149,10 @@ app.prepare().then(() => {
 
             const info = socketToRoom.get(socket.id);
             const currentPlayerId = gs.playerOrder[gs.currentTurnIndex];
-            if (!info || info.userId !== currentPlayerId) return; // 현재 턴인 플레이어만 가능
+            if (!info || info.userId !== currentPlayerId) return;
 
-            // 다음 턴으로 이동
             gs.currentTurnIndex = (gs.currentTurnIndex + 1) % gs.playerOrder.length;
 
-            // 질문 카드 한 장 뽑기
             if (gs.questionDeck.length === 0) {
                 gs.questionDeck = shuffleDeck([...gs.questionDiscards]);
                 gs.questionDiscards = [];
@@ -163,17 +160,13 @@ app.prepare().then(() => {
             const question = gs.questionDeck.pop();
             gs.questionDiscards.push(question);
 
-            // RuleEngine으로 정답 계산
-            const { evaluate } = require('./lib/ruleEngine');
             const players = gs.playerOrder.map(uid => ({
                 userId: uid,
                 hand: gs.stands[uid] || [],
             }));
-            // NPC도 포함
             players.push({ userId: 'npc', hand: gs.stands['npc'] || [] });
 
-            const nextTurnIndex = gs.currentTurnIndex;
-            const answer = evaluate(question.seq, players, nextTurnIndex);
+            const answer = evaluate(question.seq, players, gs.currentTurnIndex);
 
             io.to(roomIdStr).emit('turn_changed', {
                 currentTurn: gs.playerOrder[gs.currentTurnIndex],
@@ -195,10 +188,8 @@ app.prepare().then(() => {
             const playerHand = gs.stands[info.userId];
             if (!playerHand) return;
 
-            const { checkAnswer } = require('./lib/ruleEngine');
             const correct = checkAnswer(values, playerHand);
 
-            // 타일 교체 헬퍼: 기존 타일 버리고 새 3장 지급
             function dealNew(userId) {
                 gs.tileDiscards.push(...gs.stands[userId]);
                 if (gs.tileDeck.length < 3) {
@@ -208,22 +199,63 @@ app.prepare().then(() => {
                 gs.stands[userId] = gs.tileDeck.splice(0, 3);
             }
 
+            // 1) 정답이면 점수 먼저 반영
             if (correct) {
                 gs.scores[info.userId] = (gs.scores[info.userId] || 0) + 1;
-                dealNew(info.userId);
-            } else {
-                // 오답: 제출한 플레이어 + NPC 모두 새 타일
-                dealNew(info.userId);
-                dealNew('npc');
             }
 
+            // 2) 정답/오답 오버레이 전송
             io.to(roomIdStr).emit('answer_result', {
                 userId: info.userId,
                 correct,
                 scores: gs.scores,
             });
 
-            // 타일이 바뀌었으니 항상 각자에게 새 visibleStands 전송
+            // 2-1) 승리 조건 체크 (3점)
+            if (correct && gs.scores[info.userId] >= 3) {
+                gs.status = 'finished';
+                const roomPlayers = rooms.get(roomIdStr);
+                const winner = roomPlayers?.find(p => p.userId === info.userId);
+                io.to(roomIdStr).emit('game_over', {
+                    winnerId: info.userId,
+                    winnerName: winner?.userName ?? info.userId,
+                    scores: gs.scores,
+                });
+                console.log(`[game_over] Room ${roomIdStr} winner: ${info.userId}`);
+                return;
+            }
+
+            // 3) 타일 교체
+            if (correct) {
+                // 정답: 모든 플레이어 + NPC 전부 교체
+                gs.playerOrder.forEach(uid => dealNew(uid));
+                dealNew('npc');
+            } else {
+                // 오답: 제출자 + NPC만 교체
+                dealNew(info.userId);
+                dealNew('npc');
+            }
+
+            // 4) 다음 턴으로 이동
+            gs.currentTurnIndex = (gs.currentTurnIndex + 1) % gs.playerOrder.length;
+
+            // 5) 새 질문 카드 뽑기
+            if (gs.questionDeck.length === 0) {
+                gs.questionDeck = shuffleDeck([...gs.questionDiscards]);
+                gs.questionDiscards = [];
+            }
+            const question = gs.questionDeck.pop();
+            gs.questionDiscards.push(question);
+
+            // 6) 교체된 손패 기준으로 정답 계산
+            const turnPlayers = gs.playerOrder.map(uid => ({
+                userId: uid,
+                hand: gs.stands[uid] || [],
+            }));
+            turnPlayers.push({ userId: 'npc', hand: gs.stands['npc'] || [] });
+            const answer = evaluate(question.seq, turnPlayers, gs.currentTurnIndex);
+
+            // 7) 새 타일 화면 반영
             const roomPlayers = rooms.get(roomIdStr);
             if (roomPlayers) {
                 roomPlayers.forEach(player => {
@@ -235,7 +267,14 @@ app.prepare().then(() => {
                 });
             }
 
-            console.log(`[answer] ${info.userId} → ${correct ? '정답' : '오답'}`);
+            // 8) 다음 턴 + 새 질문
+            io.to(roomIdStr).emit('turn_changed', {
+                currentTurn: gs.playerOrder[gs.currentTurnIndex],
+                question,
+                answer,
+            });
+
+            console.log(`[answer] ${info.userId} → ${correct ? '정답' : '오답'} | next: ${gs.playerOrder[gs.currentTurnIndex]}, Q${question.seq}`);
         });
 
     }); // io.on('connection') 닫기
@@ -255,20 +294,26 @@ app.prepare().then(() => {
 
         if (players.length === 0) {
             rooms.delete(roomId);
-            broadcastRoomList(); // 방이 비어서 삭제됐을 때도 갱신
+            // DB에서도 방 삭제
+            poolPromise.then(pool => {
+                pool.request()
+                    .input('roomId', sql.Int, parseInt(roomId))
+                    .query('DELETE FROM Rooms WHERE room_seq = @roomId')
+                    .catch(err => console.error('[DB] 방 삭제 실패:', err.message));
+            });
+            broadcastRoomList();
+            io.emit('rooms_changed'); // 로비 유저들에게 방 삭제 알림
             return;
         }
 
-        // 방장이 나갔으면 다음 사람에게 방장 위임
         if (removed.isHost) {
             players[0].isHost = true;
         }
 
         io.to(roomId).emit('update_player_list', players);
-        broadcastRoomList(); // 방 인원 변경 → 로비에 있는 모든 클라이언트에게 push
+        broadcastRoomList();
     }
 
-    // 현재 rooms Map의 인원수를 모든 클라이언트에게 broadcast
     function broadcastRoomList() {
         const roomList = Array.from(rooms.entries()).map(([roomId, players]) => ({
             roomId,

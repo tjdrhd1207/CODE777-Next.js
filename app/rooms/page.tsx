@@ -39,7 +39,16 @@ export default function RoomListPage() {
             });
         });
 
+        // 4) 새 방이 생겼을 때 서버가 신호 → DB 재조회 후 인원수 재요청
+        socket.on('rooms_changed', () => {
+            fetchRooms().then(() => {
+                socket.emit('get_room_list');
+            });
+        });
+
         return () => {
+            socket.off('room_list_updated');
+            socket.off('rooms_changed');
             socket.disconnect();
             socketRef.current = null;
         };

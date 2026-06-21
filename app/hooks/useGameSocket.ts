@@ -26,6 +26,9 @@ export function useGameSocket({ roomId, userId, userName }: {
     const [currentAnswer, setCurrentAnswer] = useState<string | number | null>(null);
     const [activeTurnId, setActiveTurnId] = useState<string>('');
     const [answerResult, setAnswerResult] = useState<{ userId: string; correct: boolean } | null>(null);
+    const [gameOver, setGameOver] = useState<{ winnerId: string; winnerName: string; scores: Record<string, number> } | null>(null);
+    const [shufflePhase, setShufflePhase] = useState<'idle' | 'collecting' | 'shuffling' | 'dealing'>('idle');
+    const pendingStandsRef = useRef<Record<string, Tile[]> | null>(null);
 
     useEffect(() => {
         const socket = io('http://localhost:3000');
@@ -58,11 +61,34 @@ export function useGameSocket({ roomId, userId, userName }: {
         socket.on('answer_result', (data: { userId: string; correct: boolean; scores: Record<string, number> }) => {
             setAnswerResult({ userId: data.userId, correct: data.correct });
             setGameState(prev => prev ? { ...prev, scores: data.scores } : prev);
-            setTimeout(() => setAnswerResult(null), 3000);
+
+            // 애니메이션 시퀀스 (순차적):
+            // 0ms       : 정답/오답 오버레이 + collecting (오버레이 뒤에서 진행)
+            // 400ms     : shuffling (오버레이 뒤에서 대기)
+            // 2500ms    : 오버레이 사라짐 → 셔플 오버레이만 노출
+            // 3300ms    : 새 타일 적용 + dealing 애니메이션
+            // 4000ms    : idle
+            setShufflePhase('collecting');
+            setTimeout(() => setShufflePhase('shuffling'), 400);
+            setTimeout(() => setAnswerResult(null), 2500);
+            setTimeout(() => {
+                const stands = pendingStandsRef.current;
+                pendingStandsRef.current = null;
+                if (stands) {
+                    setGameState(prev => prev ? { ...prev, visibleStands: stands } : prev);
+                }
+                setShufflePhase('dealing');
+            }, 3300);
+            setTimeout(() => setShufflePhase('idle'), 4000);
         });
 
         socket.on('stands_updated', (data: { visibleStands: Record<string, Tile[]> }) => {
-            setGameState(prev => prev ? { ...prev, visibleStands: data.visibleStands } : prev);
+            // answer_result 흐름에서만 발생하므로 항상 버퍼링 → answer_result 타이머가 적용
+            pendingStandsRef.current = data.visibleStands;
+        });
+
+        socket.on('game_over', (data: { winnerId: string; winnerName: string; scores: Record<string, number> }) => {
+            setGameOver(data);
         });
 
         return () => {
@@ -74,6 +100,7 @@ export function useGameSocket({ roomId, userId, userName }: {
             socket.off('turn_changed');
             socket.off('answer_result');
             socket.off('stands_updated');
+            socket.off('game_over');
             socket.disconnect();
             socketRef.current = null;
         };
@@ -101,6 +128,8 @@ export function useGameSocket({ roomId, userId, userName }: {
         currentAnswer,
         activeTurnId,
         answerResult,
+        gameOver,
+        shufflePhase,
         sendMessage,
         handleReady,
         submitAnswer,

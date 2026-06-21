@@ -53,6 +53,92 @@ body {
 .stand-deal-left   { animation: deal-left   0.45s ease-out forwards; }
 .stand-deal-right  { animation: deal-right  0.45s ease-out forwards; }
 
+/* ── 패 회수 애니메이션 ───────────────────────── */
+@keyframes collect-to-top {
+  from { transform: translateY(0);     opacity: 1; }
+  to   { transform: translateY(200px); opacity: 0; }
+}
+@keyframes collect-to-bottom {
+  from { transform: translateY(0);      opacity: 1; }
+  to   { transform: translateY(-200px); opacity: 0; }
+}
+@keyframes collect-to-left {
+  from { transform: translateX(0);     opacity: 1; }
+  to   { transform: translateX(200px); opacity: 0; }
+}
+@keyframes collect-to-right {
+  from { transform: translateX(0);      opacity: 1; }
+  to   { transform: translateX(-200px); opacity: 0; }
+}
+
+.stand-collect-top    { animation: collect-to-top    0.4s ease-in forwards; }
+.stand-collect-bottom { animation: collect-to-bottom 0.4s ease-in forwards; }
+.stand-collect-left   { animation: collect-to-left   0.4s ease-in forwards; }
+.stand-collect-right  { animation: collect-to-right  0.4s ease-in forwards; }
+
+/* ── 셔플 덱 오버레이 ─────────────────────────── */
+@keyframes deck-wobble {
+  0%   { transform: rotate(0deg) translateY(0); }
+  20%  { transform: rotate(-15deg) translateY(-8px); }
+  40%  { transform: rotate(15deg) translateY(-8px); }
+  60%  { transform: rotate(-10deg) translateY(-4px); }
+  80%  { transform: rotate(10deg) translateY(-4px); }
+  100% { transform: rotate(0deg) translateY(0); }
+}
+@keyframes deck-card-spread {
+  0%   { transform: translateX(var(--cx, 0px)) rotate(var(--cr, 0deg)); opacity: 0.9; }
+  50%  { transform: translateX(calc(var(--cx, 0px) * 2)) rotate(calc(var(--cr, 0deg) * 2)); opacity: 0.6; }
+  100% { transform: translateX(var(--cx, 0px)) rotate(var(--cr, 0deg)); opacity: 0.9; }
+}
+@keyframes shuffle-label-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1; }
+}
+
+.shuffle-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  pointer-events: none;
+}
+
+.shuffle-deck {
+  position: relative;
+  width: 64px;
+  height: 90px;
+}
+
+.shuffle-deck-card {
+  position: absolute;
+  inset: 0;
+  width: 64px;
+  height: 90px;
+  border-radius: 10px;
+  background: #1a1a3e;
+  border: 2px solid #FFD700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFD700;
+  font-size: 22px;
+  font-weight: bold;
+  animation: deck-card-spread 0.5s ease-in-out infinite alternate;
+}
+
+.shuffle-label {
+  color: #FFD700;
+  font-family: 'Galmuri11', sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  animation: shuffle-label-pulse 0.6s ease-in-out infinite;
+}
+
 /* ── 정답/오답 오버레이 ──────────────────────── */
 @keyframes popIn {
   from { transform: scale(0.8); opacity: 0; }

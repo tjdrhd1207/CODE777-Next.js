@@ -29,6 +29,8 @@ export default function GameLobbyPage() {
         currentAnswer,
         activeTurnId,
         answerResult,
+        gameOver,
+        shufflePhase,
         sendMessage,
         handleReady,
         submitAnswer,
@@ -63,6 +65,50 @@ export default function GameLobbyPage() {
         handleReady(next);
     };
 
+    // ── 게임 종료 화면 ───────────────────────────────────────
+    if (gameOver) {
+        const isWinner = gameOver.winnerId === userId;
+        return (
+            <div className="min-h-screen common-bg-style text-white flex flex-col items-center justify-center gap-8">
+                <div className="flex flex-col items-center gap-4">
+                    <p className="text-5xl">{isWinner ? '🏆' : '😢'}</p>
+                    <h1 className="text-4xl font-black text-[#FFD700]">
+                        {isWinner ? '승리!' : '패배'}
+                    </h1>
+                    <p className="text-gray-400 text-lg">
+                        <span className="text-white font-bold">{gameOver.winnerName}</span> 님이 3점을 달성했습니다
+                    </p>
+                </div>
+
+                <div className="bg-[#1e1e1e] border border-[#333] rounded-2xl p-6 w-72">
+                    <h2 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 text-center">최종 점수</h2>
+                    <div className="flex flex-col gap-3">
+                        {Object.entries(gameOver.scores)
+                            .sort(([, a], [, b]) => b - a)
+                            .map(([uid, score]) => {
+                                const pName = gameState?.playerOrder.find(p => p.userId === uid)?.userName ?? uid;
+                                return (
+                                    <div key={uid} className="flex justify-between items-center">
+                                        <span className={`font-bold ${uid === gameOver.winnerId ? 'text-[#FFD700]' : 'text-gray-300'}`}>
+                                            {uid === gameOver.winnerId ? '👑 ' : ''}{pName}
+                                        </span>
+                                        <span className="text-xl font-black text-[#FFD700]">{score}</span>
+                                    </div>
+                                );
+                            })}
+                    </div>
+                </div>
+
+                <button
+                    onClick={() => router.push('/rooms')}
+                    className="px-8 py-4 rounded-2xl font-black text-lg bg-[#FFD700] text-black hover:bg-yellow-400 transition-all active:scale-95"
+                >
+                    로비로 돌아가기
+                </button>
+            </div>
+        );
+    }
+
     // ── 게임 화면 ────────────────────────────────────────────
     if (gamePhase === 'playing' && gameState) {
         const npcTiles = gameState.visibleStands['npc'] || [];
@@ -71,10 +117,30 @@ export default function GameLobbyPage() {
         const activeTurn = activeTurnId || gameState.currentTurn;
         const isMyTurn = activeTurn === userId;
 
+        // shufflePhase → 각 위치 방향 매핑
+        const collectDirs = {
+            top:    shufflePhase === 'collecting' ? 'top'    : undefined,
+            left:   shufflePhase === 'collecting' ? 'left'   : undefined,
+            right:  shufflePhase === 'collecting' ? 'right'  : undefined,
+            bottom: shufflePhase === 'collecting' ? 'bottom' : undefined,
+        } as const;
+        const dealDirs = {
+            top:    (isDealing || shufflePhase === 'dealing') ? 'top'    : undefined,
+            left:   (isDealing || shufflePhase === 'dealing') ? 'left'   : undefined,
+            right:  (isDealing || shufflePhase === 'dealing') ? 'right'  : undefined,
+            bottom: (isDealing || shufflePhase === 'dealing') ? 'bottom' : undefined,
+        } as const;
+
         return (
             <div className="min-h-screen common-bg-style text-white flex flex-col items-center justify-between p-4 gap-4">
                 {/* NPC — 상단 */}
-                <PlayerStand name="NPC" tiles={npcTiles} isTurn={activeTurn === 'npc'} dealDir={isDealing ? 'top' : undefined} />
+                <PlayerStand
+                    name="NPC"
+                    tiles={npcTiles}
+                    isTurn={activeTurn === 'npc'}
+                    collectDir={collectDirs.top}
+                    dealDir={dealDirs.top}
+                />
 
                 {/* 중간 행: 왼쪽 플레이어 | 질문 패널 | 오른쪽 플레이어 */}
                 <div className="flex items-center justify-center gap-6 w-full max-w-4xl">
@@ -84,7 +150,8 @@ export default function GameLobbyPage() {
                                 name={others[0].userName}
                                 tiles={gameState.visibleStands[others[0].userId] || []}
                                 isTurn={activeTurn === others[0].userId}
-                                dealDir={isDealing ? 'left' : undefined}
+                                collectDir={collectDirs.left}
+                                dealDir={dealDirs.left}
                             />
                         )}
                     </div>
@@ -120,7 +187,8 @@ export default function GameLobbyPage() {
                                 name={others[1].userName}
                                 tiles={gameState.visibleStands[others[1].userId] || []}
                                 isTurn={activeTurn === others[1].userId}
-                                dealDir={isDealing ? 'right' : undefined}
+                                collectDir={collectDirs.right}
+                                dealDir={dealDirs.right}
                             />
                         )}
                     </div>
@@ -128,7 +196,14 @@ export default function GameLobbyPage() {
 
                 {/* 본인 받침대 (뒷면) + 버튼 — 하단 */}
                 <div className="flex flex-col items-center gap-4">
-                    <PlayerStand name={`${selfName} (나)`} tiles={[]} isTurn={isMyTurn} isBack dealDir={isDealing ? 'bottom' : undefined} />
+                    <PlayerStand
+                        name={`${selfName} (나)`}
+                        tiles={[]}
+                        isTurn={isMyTurn}
+                        isBack
+                        collectDir={collectDirs.bottom}
+                        dealDir={dealDirs.bottom}
+                    />
                     <div className="flex gap-3">
                         <button
                             onClick={() => socketRef.current?.emit('next_turn', { roomId })}
@@ -202,6 +277,30 @@ export default function GameLobbyPage() {
                                 <p className="text-green-400 text-sm mt-3">+1점 획득</p>
                             )}
                         </div>
+                    </div>
+                )}
+
+                {/* 셔플 오버레이 */}
+                {shufflePhase === 'shuffling' && (
+                    <div className="shuffle-overlay">
+                        <div className="shuffle-deck">
+                            {[
+                                { cx: '-18px', cr: '-12deg', delay: '0s' },
+                                { cx: '-9px',  cr: '-6deg',  delay: '0.05s' },
+                                { cx: '0px',   cr: '0deg',   delay: '0.1s' },
+                                { cx: '9px',   cr: '6deg',   delay: '0.15s' },
+                                { cx: '18px',  cr: '12deg',  delay: '0.2s' },
+                            ].map((s, i) => (
+                                <div
+                                    key={i}
+                                    className="shuffle-deck-card"
+                                    style={{ '--cx': s.cx, '--cr': s.cr, animationDelay: s.delay } as React.CSSProperties}
+                                >
+                                    {i === 2 ? '?' : ''}
+                                </div>
+                            ))}
+                        </div>
+                        <p className="shuffle-label">패 교체 중...</p>
                     </div>
                 )}
             </div>
