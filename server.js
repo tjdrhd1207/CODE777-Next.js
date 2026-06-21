@@ -143,6 +143,101 @@ app.prepare().then(() => {
             console.log(`[game] Room ${roomIdStr} started`);
         });
 
+        socket.on('next_turn', ({ roomId }) => {
+            const roomIdStr = String(roomId);
+            const gs = gameStates.get(roomIdStr);
+            if (!gs || gs.status !== 'playing') return;
+
+            const info = socketToRoom.get(socket.id);
+            const currentPlayerId = gs.playerOrder[gs.currentTurnIndex];
+            if (!info || info.userId !== currentPlayerId) return; // 현재 턴인 플레이어만 가능
+
+            // 다음 턴으로 이동
+            gs.currentTurnIndex = (gs.currentTurnIndex + 1) % gs.playerOrder.length;
+
+            // 질문 카드 한 장 뽑기
+            if (gs.questionDeck.length === 0) {
+                gs.questionDeck = shuffleDeck([...gs.questionDiscards]);
+                gs.questionDiscards = [];
+            }
+            const question = gs.questionDeck.pop();
+            gs.questionDiscards.push(question);
+
+            // RuleEngine으로 정답 계산
+            const { evaluate } = require('./lib/ruleEngine');
+            const players = gs.playerOrder.map(uid => ({
+                userId: uid,
+                hand: gs.stands[uid] || [],
+            }));
+            // NPC도 포함
+            players.push({ userId: 'npc', hand: gs.stands['npc'] || [] });
+
+            const nextTurnIndex = gs.currentTurnIndex;
+            const answer = evaluate(question.seq, players, nextTurnIndex);
+
+            io.to(roomIdStr).emit('turn_changed', {
+                currentTurn: gs.playerOrder[gs.currentTurnIndex],
+                question,
+                answer,
+            });
+
+            console.log(`[turn] Room ${roomIdStr} → ${gs.playerOrder[gs.currentTurnIndex]}, Q${question.seq}`);
+        });
+
+        socket.on('submit_answer', ({ roomId, values }) => {
+            const roomIdStr = String(roomId);
+            const gs = gameStates.get(roomIdStr);
+            if (!gs || gs.status !== 'playing') return;
+
+            const info = socketToRoom.get(socket.id);
+            if (!info) return;
+
+            const playerHand = gs.stands[info.userId];
+            if (!playerHand) return;
+
+            const { checkAnswer } = require('./lib/ruleEngine');
+            const correct = checkAnswer(values, playerHand);
+
+            // 타일 교체 헬퍼: 기존 타일 버리고 새 3장 지급
+            function dealNew(userId) {
+                gs.tileDiscards.push(...gs.stands[userId]);
+                if (gs.tileDeck.length < 3) {
+                    gs.tileDeck = shuffleDeck([...gs.tileDiscards]);
+                    gs.tileDiscards = [];
+                }
+                gs.stands[userId] = gs.tileDeck.splice(0, 3);
+            }
+
+            if (correct) {
+                gs.scores[info.userId] = (gs.scores[info.userId] || 0) + 1;
+                dealNew(info.userId);
+            } else {
+                // 오답: 제출한 플레이어 + NPC 모두 새 타일
+                dealNew(info.userId);
+                dealNew('npc');
+            }
+
+            io.to(roomIdStr).emit('answer_result', {
+                userId: info.userId,
+                correct,
+                scores: gs.scores,
+            });
+
+            // 타일이 바뀌었으니 항상 각자에게 새 visibleStands 전송
+            const roomPlayers = rooms.get(roomIdStr);
+            if (roomPlayers) {
+                roomPlayers.forEach(player => {
+                    const visibleStands = {};
+                    Object.entries(gs.stands).forEach(([uid, tiles]) => {
+                        if (uid !== player.userId) visibleStands[uid] = tiles;
+                    });
+                    io.to(player.socketId).emit('stands_updated', { visibleStands });
+                });
+            }
+
+            console.log(`[answer] ${info.userId} → ${correct ? '정답' : '오답'}`);
+        });
+
     }); // io.on('connection') 닫기
 
     function leaveRoom(socket, roomId, userId) {

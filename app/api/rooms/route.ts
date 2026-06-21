@@ -30,16 +30,18 @@ export async function POST(request: Request) {
     try {
         const { name, capacity, turnTime = 30, hostId } = await request.json();
         const pool = await poolPromise;
+        const id = `id-${Math.floor(Date.now() / 1000)}`;
 
         const roomResult = await pool.request()
+            .input('id', sql.NVarChar, id)
             .input('name', sql.NVarChar, name)
             .input('capacity', sql.Int, capacity)
             .input('turnTime', sql.Int, turnTime)
             .input('hostId', sql.VarChar, hostId)
             .query(`
-                INSERT INTO Rooms (name, capacity, turnTime, hostId, status)
+                INSERT INTO Rooms (id, name, capacity, turnTime, hostId, status)
                 OUTPUT INSERTED.room_seq
-                VALUES (@name, @capacity, @turnTime, @hostId, 'waiting')
+                VALUES (@id, @name, @capacity, @turnTime, @hostId, 'waiting')
             `);
 
         const roomSeq = roomResult.recordset[0].room_seq;

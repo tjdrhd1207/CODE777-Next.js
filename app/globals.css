@@ -1,3 +1,4 @@
+@import url('https://fastly.jsdelivr.net/npm/galmuri@latest/dist/galmuri.css');
 @import "tailwindcss";
 
 :root {
@@ -22,9 +23,83 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Galmuri11', Arial, sans-serif;
 }
 
 .common-bg-style {
   background: #415731;
+}
+
+/* ── 타일 딜 애니메이션 ───────────────────────── */
+@keyframes deal-top {
+  from { transform: translateY(160px); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+@keyframes deal-bottom {
+  from { transform: translateY(-160px); opacity: 0; }
+  to   { transform: translateY(0);      opacity: 1; }
+}
+@keyframes deal-left {
+  from { transform: translateX(160px); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+@keyframes deal-right {
+  from { transform: translateX(-160px); opacity: 0; }
+  to   { transform: translateX(0);      opacity: 1; }
+}
+
+.stand-deal-top    { animation: deal-top    0.45s ease-out forwards; }
+.stand-deal-bottom { animation: deal-bottom 0.45s ease-out forwards; }
+.stand-deal-left   { animation: deal-left   0.45s ease-out forwards; }
+.stand-deal-right  { animation: deal-right  0.45s ease-out forwards; }
+
+/* ── 정답/오답 오버레이 ──────────────────────── */
+@keyframes popIn {
+  from { transform: scale(0.8); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+@keyframes glowGreen {
+  from { text-shadow: 0 0 10px #4CAF50; }
+  to   { text-shadow: 0 0 28px #4CAF50; }
+}
+@keyframes shake {
+  0%   { transform: translateX(0);  }
+  25%  { transform: translateX(-7px); }
+  50%  { transform: translateX(7px);  }
+  75%  { transform: translateX(-7px); }
+  100% { transform: translateX(0);  }
+}
+
+.answer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.answer-box {
+  background: #111;
+  padding: 40px 60px;
+  border-radius: 20px;
+  text-align: center;
+  animation: popIn 0.3s ease-out;
+}
+
+.answer-result {
+  font-size: 44px;
+  font-weight: bold;
+  font-family: 'Galmuri11', sans-serif;
+}
+
+.answer-result.correct {
+  color: #4CAF50;
+  animation: glowGreen 0.8s infinite alternate;
+}
+
+.answer-result.wrong {
+  color: #F44336;
+  animation: shake 0.4s;
 }
