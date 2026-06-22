@@ -28,6 +28,7 @@ export default function GameLobbyPage() {
         currentQuestion,
         currentAnswer,
         activeTurnId,
+        turnTimeLeft,
         answerResult,
         gameOver,
         shufflePhase,
@@ -178,6 +179,19 @@ export default function GameLobbyPage() {
                                     <span className="text-lg font-black text-[#FFD700]">{gameState.scores[p.userId] ?? 0}</span>
                                 </div>
                             ))}
+                        </div>
+
+                        {/* 턴 타이머 */}
+                        <div className="w-full flex flex-col items-center gap-1">
+                            <span className={`text-2xl font-black tabular-nums ${turnTimeLeft <= 10 ? 'text-red-400' : 'text-white'}`}>
+                                {turnTimeLeft}
+                            </span>
+                            <div className="w-full h-2 bg-[#333] rounded-full overflow-hidden">
+                                <div
+                                    className={`h-full rounded-full transition-all duration-500 ${turnTimeLeft <= 10 ? 'bg-red-400' : 'bg-[#FFD700]'}`}
+                                    style={{ width: `${(turnTimeLeft / 60) * 100}%` }}
+                                />
+                            </div>
                         </div>
                     </div>
 

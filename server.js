@@ -16,6 +16,52 @@ const rooms = new Map();
 const socketToRoom = new Map();
 // roomId -> 게임 상태
 const gameStates = new Map();
+// socketId -> reconnect 대기 타이머
+const reconnectTimers = new Map();
+// roomId -> turn 대기 타이머
+const turnTimers = new Map(); 
+
+const TURN_TIMEOUT_MS = 60_000; // 60초
+function clearTurnTimer(roomIdStr) {
+    clearTimeout(turnTimers.get(roomIdStr));
+    turnTimers.delete(roomIdStr);
+}
+
+function startTurnTimer(roomIdStr, io) {
+    clearTurnTimer(roomIdStr);
+    turnTimers.set(roomIdStr, setTimeout(() => {
+        autoAdvanceTurn(roomIdStr, io);
+    }, TURN_TIMEOUT_MS));
+}
+
+function autoAdvanceTurn(roomIdStr, io) {
+    const gs = gameStates.get(roomIdStr);
+    if (!gs || gs.status !== 'playing') return;
+
+    gs.currentTurnIndex = (gs.currentTurnIndex + 1) % gs.playerOrder.length;
+
+    if (gs.questionDeck.length === 0) {
+        gs.questionDeck = shuffleDeck([...gs.questionDiscards]);
+        gs.questionDiscards = [];
+    }
+    const question = gs.questionDeck.pop();
+    gs.questionDiscards.push(question);
+
+    const players = gs.playerOrder.map(uid => ({ userId: uid, hand: gs.stands[uid] || [] }));
+    players.push({ userId: 'npc', hand: gs.stands['npc'] || [] });
+    const answer = evaluate(question.seq, players, gs.currentTurnIndex);
+
+    const turnDeadline = Date.now() + TURN_TIMEOUT_MS;
+    io.to(roomIdStr).emit('turn_changed', {
+        currentTurn: gs.playerOrder[gs.currentTurnIndex],
+        question,
+        answer,
+        turnDeadline,
+    });
+
+    startTurnTimer(roomIdStr, io);
+    console.log(`[auto-turn] ${roomIdStr} → ${gs.playerOrder[gs.currentTurnIndex]}, Q${question.seq}`);
+}
 
 app.prepare().then(() => {
     const httpServer = createServer((req, res) => {
@@ -32,6 +78,19 @@ app.prepare().then(() => {
 
         socket.on('join_room', ({ roomId, userId, userName }) => {
             const roomIdStr = String(roomId);
+
+            // 재연결 시 기존 disconnect 타이머 취소
+            // (userId로 등록된 이전 socketId 타이머 탐색)
+            for (const [sid, timer] of reconnectTimers.entries()) {
+                const info = socketToRoom.get(sid);
+                if (info?.userId === userId && info?.roomId === roomIdStr) {
+                    clearTimeout(timer);
+                    reconnectTimers.delete(sid);
+                    socketToRoom.delete(sid);
+                    console.log(`[reconnect] ${userId} 재연결 — 퇴장 타이머 취소`);
+                    break;
+                }
+            }
 
             if (!rooms.has(roomIdStr)) {
                 rooms.set(roomIdStr, []);
@@ -83,9 +142,14 @@ app.prepare().then(() => {
         socket.on('disconnect', () => {
             console.log('User disconnected:', socket.id);
             const info = socketToRoom.get(socket.id);
-            if (info) {
+            if (!info) return;
+
+            const timer = setTimeout(() => {
+                reconnectTimers.delete(socket.id);
                 leaveRoom(socket, info.roomId, info.userId);
-            }
+            }, 10000);
+            reconnectTimers.set(socket.id, timer);
+            console.log(`[disconnect] ${info.userId} — 10초 후 퇴장 예정`);
         });
 
         socket.on('get_room_list', () => {
@@ -123,6 +187,8 @@ app.prepare().then(() => {
             };
             gameStates.set(roomIdStr, gameState);
 
+            const firstTurnDeadline = Date.now() + TURN_TIMEOUT_MS;
+
             players.forEach(player => {
                 const visibleStands = {};
                 Object.entries(stands).forEach(([uid, tiles]) => {
@@ -136,9 +202,11 @@ app.prepare().then(() => {
                     scores: gameState.scores,
                     currentTurn: gameState.playerOrder[0],
                     playerOrder: players.map(p => ({ userId: p.userId, userName: p.userName })),
+                    turnDeadline: firstTurnDeadline,
                 });
             });
 
+            startTurnTimer(roomIdStr, io);
             console.log(`[game] Room ${roomIdStr} started`);
         });
 
@@ -150,6 +218,8 @@ app.prepare().then(() => {
             const info = socketToRoom.get(socket.id);
             const currentPlayerId = gs.playerOrder[gs.currentTurnIndex];
             if (!info || info.userId !== currentPlayerId) return;
+
+            clearTurnTimer(roomIdStr);
 
             gs.currentTurnIndex = (gs.currentTurnIndex + 1) % gs.playerOrder.length;
 
@@ -167,13 +237,16 @@ app.prepare().then(() => {
             players.push({ userId: 'npc', hand: gs.stands['npc'] || [] });
 
             const answer = evaluate(question.seq, players, gs.currentTurnIndex);
+            const turnDeadline = Date.now() + TURN_TIMEOUT_MS;
 
             io.to(roomIdStr).emit('turn_changed', {
                 currentTurn: gs.playerOrder[gs.currentTurnIndex],
                 question,
                 answer,
+                turnDeadline,
             });
 
+            startTurnTimer(roomIdStr, io);
             console.log(`[turn] Room ${roomIdStr} → ${gs.playerOrder[gs.currentTurnIndex]}, Q${question.seq}`);
         });
 
@@ -189,6 +262,7 @@ app.prepare().then(() => {
             if (!playerHand) return;
 
             const correct = checkAnswer(values, playerHand);
+            clearTurnTimer(roomIdStr);
 
             function dealNew(userId) {
                 gs.tileDiscards.push(...gs.stands[userId]);
@@ -214,6 +288,7 @@ app.prepare().then(() => {
             // 2-1) 승리 조건 체크 (3점)
             if (correct && gs.scores[info.userId] >= 3) {
                 gs.status = 'finished';
+                clearTurnTimer(roomIdStr);
                 const roomPlayers = rooms.get(roomIdStr);
                 const winner = roomPlayers?.find(p => p.userId === info.userId);
                 io.to(roomIdStr).emit('game_over', {
@@ -268,12 +343,15 @@ app.prepare().then(() => {
             }
 
             // 8) 다음 턴 + 새 질문
+            const turnDeadline = Date.now() + TURN_TIMEOUT_MS;
             io.to(roomIdStr).emit('turn_changed', {
                 currentTurn: gs.playerOrder[gs.currentTurnIndex],
                 question,
                 answer,
+                turnDeadline,
             });
 
+            startTurnTimer(roomIdStr, io);
             console.log(`[answer] ${info.userId} → ${correct ? '정답' : '오답'} | next: ${gs.playerOrder[gs.currentTurnIndex]}, Q${question.seq}`);
         });
 

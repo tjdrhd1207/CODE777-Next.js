@@ -25,6 +25,8 @@ export function useGameSocket({ roomId, userId, userName }: {
     const [currentQuestion, setCurrentQuestion] = useState<{ seq: number; question: string } | null>(null);
     const [currentAnswer, setCurrentAnswer] = useState<string | number | null>(null);
     const [activeTurnId, setActiveTurnId] = useState<string>('');
+    const [turnTimeLeft, setTurnTimeLeft] = useState<number>(60);
+    const turnDeadlineRef = useRef<number>(0);
     const [answerResult, setAnswerResult] = useState<{ userId: string; correct: boolean } | null>(null);
     const [gameOver, setGameOver] = useState<{ winnerId: string; winnerName: string; scores: Record<string, number> } | null>(null);
     const [shufflePhase, setShufflePhase] = useState<'idle' | 'collecting' | 'shuffling' | 'dealing'>('idle');
@@ -46,16 +48,18 @@ export function useGameSocket({ roomId, userId, userName }: {
             socket.emit('join_room', { roomId, userId, userName });
         });
 
-        socket.on('game_started', (data: GameState) => {
+        socket.on('game_started', (data: GameState & { turnDeadline?: number }) => {
             setGameState(data);
             setActiveTurnId(data.currentTurn);
             setGamePhase('playing');
+            if (data.turnDeadline) turnDeadlineRef.current = data.turnDeadline;
         });
 
-        socket.on('turn_changed', (data: { currentTurn: string; question: { seq: number; question: string }; answer: string | number }) => {
+        socket.on('turn_changed', (data: { currentTurn: string; question: { seq: number; question: string }; answer: string | number; turnDeadline?: number }) => {
             setActiveTurnId(data.currentTurn);
             setCurrentQuestion(data.question);
             setCurrentAnswer(data.answer);
+            if (data.turnDeadline) turnDeadlineRef.current = data.turnDeadline;
         });
 
         socket.on('answer_result', (data: { userId: string; correct: boolean; scores: Record<string, number> }) => {
@@ -106,6 +110,16 @@ export function useGameSocket({ roomId, userId, userName }: {
         };
     }, [roomId, userId]);
 
+    // 1초마다 남은 시간 계산
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (!turnDeadlineRef.current) return;
+            const left = Math.max(0, Math.ceil((turnDeadlineRef.current - Date.now()) / 1000));
+            setTurnTimeLeft(left);
+        }, 500);
+        return () => clearInterval(interval);
+    }, []);
+
     const sendMessage = (message: string) => {
         socketRef.current?.emit('send_message', { roomId, userId, userName, message });
     };
@@ -127,6 +141,7 @@ export function useGameSocket({ roomId, userId, userName }: {
         currentQuestion,
         currentAnswer,
         activeTurnId,
+        turnTimeLeft,
         answerResult,
         gameOver,
         shufflePhase,
