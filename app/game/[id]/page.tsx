@@ -40,6 +40,20 @@ export default function GameLobbyPage() {
     const [showAnswerModal, setShowAnswerModal] = useState(false);
     const [guesses, setGuesses] = useState<[number, number, number]>([1, 1, 1]);
     const [isDealing, setIsDealing] = useState(false);
+    const [questionDeckPhase, setQuestionDeckPhase] = useState<'idle' | 'shuffling' | 'drawing' | 'visible'>('idle');
+    const firstQTriggered = useRef(false);
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<'memo' | 'logic'>('memo');
+    const [memoText, setMemoText] = useState(() =>
+        typeof window !== 'undefined' ? (localStorage.getItem(`memo_${String(roomId)}`) ?? '') : ''
+    );
+    const [logicGrid, setLogicGrid] = useState<boolean[][]>(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem(`logic_${String(roomId)}`);
+            if (saved) try { return JSON.parse(saved); } catch { /* ignore */ }
+        }
+        return Array.from({ length: 3 }, () => Array(7).fill(true));
+    });
 
     // 게임 시작 직후 딜 애니메이션 트리거
     useEffect(() => {
@@ -49,6 +63,26 @@ export default function GameLobbyPage() {
             return () => clearTimeout(t);
         }
     }, [gamePhase]);
+
+    useEffect(() => {
+        localStorage.setItem(`memo_${String(roomId)}`, memoText);
+    }, [memoText]);
+
+    useEffect(() => {
+        localStorage.setItem(`logic_${String(roomId)}`, JSON.stringify(logicGrid));
+    }, [logicGrid]);
+
+    // 첫 질문 도착 시 힌트덱 셔플 → 드로우 애니메이션
+    useEffect(() => {
+        if (gamePhase === 'playing' && currentQuestion && !firstQTriggered.current) {
+            firstQTriggered.current = true;
+            setQuestionDeckPhase('shuffling');
+            const t1 = setTimeout(() => setQuestionDeckPhase('drawing'), 1200);
+            const t2 = setTimeout(() => setQuestionDeckPhase('visible'), 1650);
+            const t3 = setTimeout(() => setQuestionDeckPhase('idle'), 2100);
+            return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+        }
+    }, [gamePhase, currentQuestion]);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -110,6 +144,8 @@ export default function GameLobbyPage() {
         );
     }
 
+    const getCharSrc = (idx: number) => `/assets/card/character_${idx + 1}.png`;
+
     // ── 게임 화면 ────────────────────────────────────────────
     if (gamePhase === 'playing' && gameState) {
         const npcTiles = gameState.visibleStands['npc'] || [];
@@ -117,6 +153,7 @@ export default function GameLobbyPage() {
         const selfName = gameState.playerOrder.find(p => p.userId === userId)?.userName || userName || '';
         const activeTurn = activeTurnId || gameState.currentTurn;
         const isMyTurn = activeTurn === userId;
+        const selfIdx = gameState.playerOrder.findIndex(p => p.userId === userId);
 
         // shufflePhase → 각 위치 방향 매핑
         const collectDirs = {
@@ -133,7 +170,7 @@ export default function GameLobbyPage() {
         } as const;
 
         return (
-            <div className="min-h-screen common-bg-style text-white flex flex-col items-center justify-between p-4 gap-4">
+            <div className="min-h-screen common-bg-style text-white flex flex-col items-center justify-between pt-4 px-4 pb-12 gap-4">
                 {/* NPC — 상단 */}
                 <PlayerStand
                     name="NPC"
@@ -141,6 +178,7 @@ export default function GameLobbyPage() {
                     isTurn={activeTurn === 'npc'}
                     collectDir={collectDirs.top}
                     dealDir={dealDirs.top}
+                    characterImg={getCharSrc(3)}
                 />
 
                 {/* 중간 행: 왼쪽 플레이어 | 질문 패널 | 오른쪽 플레이어 */}
@@ -153,6 +191,7 @@ export default function GameLobbyPage() {
                                 isTurn={activeTurn === others[0].userId}
                                 collectDir={collectDirs.left}
                                 dealDir={dealDirs.left}
+                                characterImg={getCharSrc(gameState.playerOrder.findIndex(p => p.userId === others[0].userId))}
                             />
                         )}
                     </div>
@@ -160,15 +199,38 @@ export default function GameLobbyPage() {
                     {/* 중앙 질문/정답/점수 패널 */}
                     <div className="flex-[1.5] flex flex-col items-center gap-3">
                         <div className="w-full bg-[#1a2a1a] border border-[#FFD700]/30 rounded-2xl p-4 text-center min-h-[120px] flex flex-col items-center justify-center gap-2">
-                            {currentQuestion ? (
-                                <>
+                            {questionDeckPhase === 'shuffling' && (
+                                <div className="flex flex-col items-center gap-2">
+                                    <div className="relative w-14 h-20">
+                                        {[0, 1, 2].map(i => (
+                                            <div
+                                                key={i}
+                                                className="absolute w-14 h-20 rounded-xl bg-[#1a1a3e] border-2 border-[#FFD700]/70 q-deck-card"
+                                                style={{ top: `${-i * 3}px`, left: `${i * 2}px`, zIndex: i, animationDelay: `${i * 0.09}s` }}
+                                            />
+                                        ))}
+                                        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                                            <span className="text-[#FFD700] text-2xl font-black">?</span>
+                                        </div>
+                                    </div>
+                                    <p className="text-[#FFD700] text-xs font-bold animate-pulse">힌트 카드 섞는 중...</p>
+                                </div>
+                            )}
+                            {questionDeckPhase === 'drawing' && (
+                                <div className="w-14 h-20 rounded-xl bg-[#1a1a3e] border-2 border-[#FFD700] flex items-center justify-center q-card-draw">
+                                    <span className="text-[#FFD700] text-2xl font-black">?</span>
+                                </div>
+                            )}
+                            {(questionDeckPhase === 'visible' || questionDeckPhase === 'idle') && currentQuestion && (
+                                <div className={questionDeckPhase === 'visible' ? 'q-reveal' : ''}>
                                     <p className="text-xs text-[#FFD700] font-bold uppercase tracking-widest">Q{currentQuestion.seq}</p>
-                                    <p className="text-sm text-white leading-relaxed">{currentQuestion.question}</p>
+                                    <p className="text-sm text-white leading-relaxed mt-1">{currentQuestion.question}</p>
                                     {currentAnswer !== null && (
-                                        <p className="text-2xl font-black text-[#FFD700]">{currentAnswer}</p>
+                                        <p className="text-2xl font-black text-[#FFD700] mt-1">{currentAnswer}</p>
                                     )}
-                                </>
-                            ) : (
+                                </div>
+                            )}
+                            {questionDeckPhase === 'idle' && !currentQuestion && (
                                 <p className="text-gray-500 text-sm">질문 카드 대기 중...</p>
                             )}
                         </div>
@@ -203,6 +265,7 @@ export default function GameLobbyPage() {
                                 isTurn={activeTurn === others[1].userId}
                                 collectDir={collectDirs.right}
                                 dealDir={dealDirs.right}
+                                characterImg={getCharSrc(gameState.playerOrder.findIndex(p => p.userId === others[1].userId))}
                             />
                         )}
                     </div>
@@ -217,6 +280,7 @@ export default function GameLobbyPage() {
                         isBack
                         collectDir={collectDirs.bottom}
                         dealDir={dealDirs.bottom}
+                        characterImg={getCharSrc(selfIdx)}
                     />
                     <div className="flex gap-3">
                         <button
@@ -317,6 +381,101 @@ export default function GameLobbyPage() {
                         <p className="shuffle-label">패 교체 중...</p>
                     </div>
                 )}
+
+                {/* 하단 메모 드로어 */}
+                <div
+                    className="fixed bottom-0 left-0 right-0 z-40 transition-transform duration-300 ease-out"
+                    style={{ transform: drawerOpen ? 'translateY(0)' : 'translateY(calc(100% - 36px))' }}
+                >
+                    {/* 핸들 — 항상 노출 */}
+                    <button
+                        onClick={() => setDrawerOpen(prev => !prev)}
+                        className="w-full flex items-center justify-center gap-2 bg-[#1a2a1a] border-t-2 border-[#FFD700]/50 py-2 hover:bg-[#243024] transition-colors"
+                    >
+                        <span className="text-[#FFD700] text-xs font-black tracking-widest uppercase">메모</span>
+                        <span className="text-[#FFD700] text-[10px]">{drawerOpen ? '▼' : '▲'}</span>
+                    </button>
+
+                    {/* 드로어 본체 */}
+                    <div className="bg-[#0d160d] border-t border-[#FFD700]/20">
+                        {/* 탭 헤더 */}
+                        <div className="flex items-center gap-1 px-4 pt-2 pb-0 border-b border-[#333]">
+                            {(['memo', 'logic'] as const).map(tab => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setActiveTab(tab)}
+                                    className={`px-4 py-2 text-xs font-bold rounded-t-lg transition-colors ${
+                                        activeTab === tab
+                                            ? 'bg-[#1a2a1a] text-[#FFD700] border border-b-0 border-[#FFD700]/40'
+                                            : 'text-gray-500 hover:text-gray-300'
+                                    }`}
+                                >
+                                    {tab === 'memo' ? '메모장' : '추론표'}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* 탭 내용 */}
+                        <div className="h-48 overflow-y-auto p-3">
+                            {/* 탭 1 — 자유 메모 */}
+                            {activeTab === 'memo' && (
+                                <textarea
+                                    value={memoText}
+                                    onChange={e => setMemoText(e.target.value)}
+                                    placeholder="힌트 결과, 추측, 전략 등 자유롭게 적어보세요..."
+                                    className="w-full h-full bg-transparent text-white text-sm leading-relaxed resize-none focus:outline-none placeholder:text-gray-600 font-mono"
+                                />
+                            )}
+
+                            {/* 탭 2 — 추론표 */}
+                            {activeTab === 'logic' && (
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex items-start gap-4 justify-center">
+                                        {/* 숫자 레이블 열 */}
+                                        <div className="flex flex-col gap-1 pt-7">
+                                            {[1, 2, 3, 4, 5, 6, 7].map(n => (
+                                                <div key={n} className="w-6 h-8 flex items-center justify-center text-xs text-gray-500 font-bold">{n}</div>
+                                            ))}
+                                        </div>
+                                        {/* 타일별 열 */}
+                                        {[0, 1, 2].map(col => (
+                                            <div key={col} className="flex flex-col items-center gap-1">
+                                                <span className="text-[10px] text-[#FFD700] font-black mb-1">{col + 1}번</span>
+                                                {[0, 1, 2, 3, 4, 5, 6].map(row => (
+                                                    <button
+                                                        key={row}
+                                                        onClick={() => setLogicGrid(prev =>
+                                                            prev.map((c, ci) => ci === col
+                                                                ? c.map((v, ri) => ri === row ? !v : v)
+                                                                : c
+                                                            )
+                                                        )}
+                                                        className={`w-8 h-8 rounded-lg text-xs font-black transition-all border-2 ${
+                                                            logicGrid[col][row]
+                                                                ? 'bg-[#1a2a1a] border-[#FFD700]/40 text-white hover:border-[#FFD700]'
+                                                                : 'bg-[#2a0a0a] border-red-800/60 text-red-500'
+                                                        }`}
+                                                    >
+                                                        {logicGrid[col][row] ? '○' : '✕'}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {/* 초기화 버튼 */}
+                                    <div className="flex justify-end px-2">
+                                        <button
+                                            onClick={() => setLogicGrid(Array.from({ length: 3 }, () => Array(7).fill(true)))}
+                                            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
+                                        >
+                                            초기화
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
             </div>
         );
     }
@@ -343,7 +502,7 @@ export default function GameLobbyPage() {
                         <span className="text-sm font-bold uppercase tracking-wider">Players ({players.length}/{currentRoom?.capacity ?? '-'})</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-3">
-                        {players.map((player) => (
+                        {players.map((player, playerIdx) => (
                             <motion.div
                                 key={player.userId}
                                 initial={{ x: -20, opacity: 0 }}
@@ -351,8 +510,8 @@ export default function GameLobbyPage() {
                                 className={`p-5 rounded-2xl border flex items-center justify-between ${player.isReady ? 'border-green-500/50 bg-green-500/5' : 'border-[#333] bg-[#272d24]'}`}
                             >
                                 <div className="flex items-center gap-4">
-                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${player.isHost ? 'bg-[#FFD700] text-black' : 'bg-[#333] text-gray-300'}`}>
-                                        {player.userName[0]}
+                                    <div className={`relative w-12 h-12 rounded-full overflow-hidden border-2 ${player.isHost ? 'border-[#FFD700]' : 'border-[#444]'}`}>
+                                        <img src={getCharSrc(playerIdx)} alt={player.userName} className="w-full h-full object-cover" />
                                     </div>
                                     <div>
                                         <div className="flex items-center gap-2">

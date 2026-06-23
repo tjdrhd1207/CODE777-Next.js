@@ -187,6 +187,13 @@ app.prepare().then(() => {
             };
             gameStates.set(roomIdStr, gameState);
 
+            // 첫 질문 미리 뽑기
+            const firstQuestion = gameState.questionDeck.pop();
+            gameState.questionDiscards.push(firstQuestion);
+            const firstPlayers = gameState.playerOrder.map(uid => ({ userId: uid, hand: stands[uid] || [] }));
+            firstPlayers.push({ userId: 'npc', hand: stands['npc'] || [] });
+            const firstAnswer = evaluate(firstQuestion.seq, firstPlayers, 0);
+
             const firstTurnDeadline = Date.now() + TURN_TIMEOUT_MS;
 
             players.forEach(player => {
@@ -203,6 +210,8 @@ app.prepare().then(() => {
                     currentTurn: gameState.playerOrder[0],
                     playerOrder: players.map(p => ({ userId: p.userId, userName: p.userName })),
                     turnDeadline: firstTurnDeadline,
+                    question: firstQuestion,
+                    answer: firstAnswer,
                 });
             });
 

@@ -48,11 +48,13 @@ export function useGameSocket({ roomId, userId, userName }: {
             socket.emit('join_room', { roomId, userId, userName });
         });
 
-        socket.on('game_started', (data: GameState & { turnDeadline?: number }) => {
+        socket.on('game_started', (data: GameState & { turnDeadline?: number; question?: { seq: number; question: string }; answer?: string | number }) => {
             setGameState(data);
             setActiveTurnId(data.currentTurn);
-            setGamePhase('playing');
+            if (data.question !== undefined) setCurrentQuestion(data.question);
+            if (data.answer !== undefined) setCurrentAnswer(data.answer);
             if (data.turnDeadline) turnDeadlineRef.current = data.turnDeadline;
+            setGamePhase('playing');
         });
 
         socket.on('turn_changed', (data: { currentTurn: string; question: { seq: number; question: string }; answer: string | number; turnDeadline?: number }) => {
