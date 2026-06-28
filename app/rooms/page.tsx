@@ -133,7 +133,7 @@ export default function RoomListPage() {
             </AnimatePresence>
 
             <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {rooms.map((room) => {
+                {rooms.filter(room => (room.players ?? 0) > 0).map((room) => {
                     return (
                         <motion.div
                             key={room.room_seq}

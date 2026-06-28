@@ -4,7 +4,6 @@ import { parse } from "url";
 import { Server } from 'socket.io';
 import { generateDeck, shuffleDeck, QUESTION_CARDS } from './lib/cards.js';
 import { evaluate, checkAnswer } from './lib/ruleEngine.js';
-import { sql, poolPromise } from './lib/db.js';
 
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
@@ -63,7 +62,9 @@ function autoAdvanceTurn(roomIdStr, io) {
     console.log(`[auto-turn] ${roomIdStr} → ${gs.playerOrder[gs.currentTurnIndex]}, Q${question.seq}`);
 }
 
-app.prepare().then(() => {
+app.prepare().then(async () => {
+    // app.prepare() 이후 env 변수가 로드되므로 여기서 DB 연결
+    const { sql, poolPromise } = await import('./lib/db.js');
     const httpServer = createServer((req, res) => {
         const parsedUrl = parse(req.url, true);
         handle(req, res, parsedUrl);
@@ -76,11 +77,10 @@ app.prepare().then(() => {
     io.on('connection', (socket) => {
         console.log('User connected:', socket.id);
 
-        socket.on('join_room', ({ roomId, userId, userName }) => {
+        socket.on('join_room', async ({ roomId, userId, userName }) => {
             const roomIdStr = String(roomId);
 
             // 재연결 시 기존 disconnect 타이머 취소
-            // (userId로 등록된 이전 socketId 타이머 탐색)
             for (const [sid, timer] of reconnectTimers.entries()) {
                 const info = socketToRoom.get(sid);
                 if (info?.userId === userId && info?.roomId === roomIdStr) {
@@ -97,12 +97,34 @@ app.prepare().then(() => {
             }
 
             const players = rooms.get(roomIdStr);
-            const isHost = players.length === 0;
 
+            // 이미 방에 있는 경우(재연결): socketId만 갱신, DB 업데이트 불필요
+            const existing = players.find(p => p.userId === userId);
+            if (existing) {
+                existing.socketId = socket.id;
+                socketToRoom.set(socket.id, { roomId: roomIdStr, userId });
+                socket.join(roomIdStr);
+                console.log(`[rejoin] ${userName}(${userId}) ← room ${roomIdStr}`);
+                io.to(roomIdStr).emit('update_player_list', players);
+                broadcastRoomList();
+                return;
+            }
+
+            const isHost = players.length === 0;
             players.push({ userId, userName, socketId: socket.id, isReady: false, isHost });
             socketToRoom.set(socket.id, { roomId: roomIdStr, userId });
-
             socket.join(roomIdStr);
+
+            // DB playerCount 동기화 (rooms_changed 전에 완료해야 레이스 컨디션 방지)
+            try {
+                const pool = await poolPromise;
+                await pool.request()
+                    .input('playerCount', sql.Int, players.length)
+                    .input('roomId', sql.Int, parseInt(roomIdStr))
+                    .query('UPDATE Rooms SET playerCount = @playerCount WHERE room_seq = @roomId');
+            } catch (err) {
+                console.error('[DB] playerCount 업데이트 실패:', err.message);
+            }
 
             console.log(`[join] ${userName}(${userId}) → room ${roomIdStr}`);
             io.to(roomIdStr).emit('update_player_list', players);
@@ -381,7 +403,7 @@ app.prepare().then(() => {
 
         if (players.length === 0) {
             rooms.delete(roomId);
-            // DB에서도 방 삭제
+            gameStates.delete(roomId);
             poolPromise.then(pool => {
                 pool.request()
                     .input('roomId', sql.Int, parseInt(roomId))
@@ -389,9 +411,18 @@ app.prepare().then(() => {
                     .catch(err => console.error('[DB] 방 삭제 실패:', err.message));
             });
             broadcastRoomList();
-            io.emit('rooms_changed'); // 로비 유저들에게 방 삭제 알림
+            io.emit('rooms_changed');
             return;
         }
+
+        // DB playerCount 동기화
+        poolPromise.then(pool => {
+            pool.request()
+                .input('playerCount', sql.Int, players.length)
+                .input('roomId', sql.Int, parseInt(roomId))
+                .query('UPDATE Rooms SET playerCount = @playerCount WHERE room_seq = @roomId')
+                .catch(err => console.error('[DB] playerCount 업데이트 실패:', err.message));
+        });
 
         if (removed.isHost) {
             players[0].isHost = true;
@@ -408,6 +439,14 @@ app.prepare().then(() => {
         }));
         io.emit('room_list_updated', roomList);
     }
+
+    // 서버 시작 시 stale 방 초기화 (in-memory 상태가 리셋되므로 DB도 맞춤)
+    poolPromise.then(pool => {
+        pool.request()
+            .query('DELETE FROM Rooms')
+            .then(() => console.log('[DB] 서버 시작 — stale 방 전체 삭제'))
+            .catch(err => console.error('[DB] 방 초기화 실패:', err.message));
+    });
 
     const PORT = 3000;
     httpServer.listen(PORT, (err) => {

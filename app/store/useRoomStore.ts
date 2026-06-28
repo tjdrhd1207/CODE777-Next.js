@@ -22,7 +22,7 @@ export const useRoomStore = create<RoomState>((set) =>({
         const res = await fetch('/api/rooms');
         const data = await res.json();
         if (data.success) {
-            set({ rooms: data.rooms });
+            set({ rooms: data.rooms.map((r: any) => ({ ...r, players: r.playerCount ?? 0 })) });
         }
     },
     // 소켓에서 받은 실시간 인원수를 해당 방에만 반영

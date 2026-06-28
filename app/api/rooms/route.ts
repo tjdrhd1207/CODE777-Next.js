@@ -11,12 +11,14 @@ export async function GET() {
                     r.room_seq,
                     r.name,
                     r.capacity,
+                    r.playerCount,
                     r.turnTime,
                     r.status,
                     r.hostId,
                     r.createdAt
                 FROM Rooms r
                 WHERE r.status = 'waiting'
+                  AND r.playerCount > 0
                 ORDER BY r.createdAt DESC
             `);
 
@@ -37,7 +39,7 @@ export async function POST(request: Request) {
             .input('name', sql.NVarChar, name)
             .input('capacity', sql.Int, capacity)
             .input('turnTime', sql.Int, turnTime)
-            .input('hostId', sql.VarChar, hostId)
+            .input('hostId', sql.NVarChar, hostId)
             .query(`
                 INSERT INTO Rooms (id, name, capacity, turnTime, hostId, status)
                 OUTPUT INSERTED.room_seq

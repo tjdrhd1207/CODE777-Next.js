@@ -9,6 +9,36 @@ import { useGameStore } from "../../store/useGameStore";
 import { useGameSocket } from "../../hooks/useGameSocket";
 import { PlayerStand } from "../../components/game/PlayerStand";
 
+type QuizQ =
+    | { seq: number; label: string; type: 'number' }
+    | { seq: number; label: string; type: 'choice'; a: string; b: string };
+
+const QUIZ_QUESTIONS: QuizQ[] = [
+    { seq: 1,  label: '숫자의 합이 18 이상인 받침대는 몇 개입니까?',   type: 'number' },
+    { seq: 2,  label: '숫자의 합이 12 이하인 받침대는 몇 개입니까?',   type: 'number' },
+    { seq: 3,  label: '숫자는 같고 색깔은 다른 타일이 있는 받침대는 몇 개입니까?',    type: 'number' },
+    { seq: 4,  label: '3개의 타일이 모두 색깔이 다른 받침대는 몇 개입니까?', type: 'number' },
+    { seq: 5,  label: '짝수만 있거나 홀수만 있는 받침대는 몇 개입니까?',     type: 'number' },
+    { seq: 6,  label: '색깔과 숫자 모두 완전히 같은 타일이 있는 받침대는 몇 개입니까?', type: 'number' },
+    { seq: 7,  label: '3개의 타일이 연속된 숫자인 받침대는 몇 개입니까?',       type: 'number' },
+    { seq: 8,  label: '몇 가지 색깔이 보입니까?',      type: 'number' },
+    { seq: 9,  label: '3번 이상 보이는 색깔은 몇 개입니까?',     type: 'number' },
+    { seq: 10, label: '하나도 보이지 않는 숫자는 몇 개입니까?',    type: 'number' },
+    { seq: 11, label: '녹색 1, 검정 5, 분홍 7이 총 몇 개 보입니까?', type: 'number' },
+    { seq: 12, label: '3과 분홍6 중에서 어느 것이 더 많이 보입니까?',       type: 'choice', a: '3',   b: '분6'  },
+    { seq: 13, label: '녹색 6과 노랑 7 중에서 어느 것이 더 많이 보입니까?',       type: 'choice', a: '녹6', b: '노7'  },
+    { seq: 14, label: '노랑 2와 노랑 7 중에서 어느 것이 더 많이 보입니까?',       type: 'choice', a: '노2', b: '노7'  },
+    { seq: 15, label: '분홍 6과 노랑 6 중에서 어느 것이 더 많이 보입니까?',       type: 'choice', a: '분6', b: '노6'  },
+    { seq: 16, label: '파랑 7과 다른 색깔 7 중에서 어느 것이 더 많이 보입니까?',     type: 'choice', a: '파7', b: '다른7'},
+    { seq: 17, label: '갈색 vs 파랑',     type: 'choice', a: '갈색', b: '파랑'},
+    { seq: 18, label: '빨강 vs 분홍',     type: 'choice', a: '빨강', b: '분홍'},
+    { seq: 19, label: '녹색 vs 파랑',     type: 'choice', a: '녹색', b: '파랑'},
+    { seq: 20, label: '노랑 vs 분홍',     type: 'choice', a: '노랑', b: '분홍'},
+    { seq: 21, label: '검정 vs 갈색',     type: 'choice', a: '검정', b: '갈색'},
+    { seq: 22, label: '검정 vs 빨강',     type: 'choice', a: '검정', b: '빨강'},
+    { seq: 23, label: '녹색 vs 노랑',     type: 'choice', a: '녹색', b: '노랑'},
+];
+
 export default function GameLobbyPage() {
     const params = useParams();
     const router = useRouter();
@@ -47,12 +77,12 @@ export default function GameLobbyPage() {
     const [memoText, setMemoText] = useState(() =>
         typeof window !== 'undefined' ? (localStorage.getItem(`memo_${String(roomId)}`) ?? '') : ''
     );
-    const [logicGrid, setLogicGrid] = useState<boolean[][]>(() => {
+    const [quizAnswers, setQuizAnswers] = useState<Record<number, string>>(() => {
         if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem(`logic_${String(roomId)}`);
+            const saved = localStorage.getItem(`quiz_${String(roomId)}`);
             if (saved) try { return JSON.parse(saved); } catch { /* ignore */ }
         }
-        return Array.from({ length: 3 }, () => Array(7).fill(true));
+        return {};
     });
 
     // 게임 시작 직후 딜 애니메이션 트리거
@@ -69,8 +99,8 @@ export default function GameLobbyPage() {
     }, [memoText]);
 
     useEffect(() => {
-        localStorage.setItem(`logic_${String(roomId)}`, JSON.stringify(logicGrid));
-    }, [logicGrid]);
+        localStorage.setItem(`quiz_${String(roomId)}`, JSON.stringify(quizAnswers));
+    }, [quizAnswers]);
 
     // 첫 질문 도착 시 힌트덱 셔플 → 드로우 애니메이션
     useEffect(() => {
@@ -169,8 +199,68 @@ export default function GameLobbyPage() {
             bottom: (isDealing || shufflePhase === 'dealing') ? 'bottom' : undefined,
         } as const;
 
+        const centerPanel = (
+            <div className="flex flex-col items-center gap-3 w-full">
+                <div className="w-full bg-[#1a2a1a] border border-[#FFD700]/30 rounded-2xl p-3 md:p-4 text-center min-h-[100px] md:min-h-[120px] flex flex-col items-center justify-center gap-2">
+                    {questionDeckPhase === 'shuffling' && (
+                        <div className="flex flex-col items-center gap-2">
+                            <div className="relative w-10 h-14 md:w-14 md:h-20">
+                                {[0, 1, 2].map(i => (
+                                    <div
+                                        key={i}
+                                        className="absolute w-10 h-14 md:w-14 md:h-20 rounded-xl bg-[#1a1a3e] border-2 border-[#FFD700]/70 q-deck-card"
+                                        style={{ top: `${-i * 3}px`, left: `${i * 2}px`, zIndex: i, animationDelay: `${i * 0.09}s` }}
+                                    />
+                                ))}
+                                <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                                    <span className="text-[#FFD700] text-xl md:text-2xl font-black">?</span>
+                                </div>
+                            </div>
+                            <p className="text-[#FFD700] text-xs font-bold animate-pulse">힌트 카드 섞는 중...</p>
+                        </div>
+                    )}
+                    {questionDeckPhase === 'drawing' && (
+                        <div className="w-10 h-14 md:w-14 md:h-20 rounded-xl bg-[#1a1a3e] border-2 border-[#FFD700] flex items-center justify-center q-card-draw">
+                            <span className="text-[#FFD700] text-xl md:text-2xl font-black">?</span>
+                        </div>
+                    )}
+                    {(questionDeckPhase === 'visible' || questionDeckPhase === 'idle') && currentQuestion && (
+                        <div className={questionDeckPhase === 'visible' ? 'q-reveal' : ''}>
+                            <p className="text-xs text-[#FFD700] font-bold uppercase tracking-widest">Q{currentQuestion.seq}</p>
+                            <p className="text-sm text-white leading-relaxed mt-1">{currentQuestion.question}</p>
+                            {currentAnswer !== null && (
+                                <p className="text-2xl font-black text-[#FFD700] mt-1">{currentAnswer}</p>
+                            )}
+                        </div>
+                    )}
+                    {questionDeckPhase === 'idle' && !currentQuestion && (
+                        <p className="text-gray-500 text-sm">질문 카드 대기 중...</p>
+                    )}
+                </div>
+                <div className="flex gap-4">
+                    {gameState.playerOrder.map(p => (
+                        <div key={p.userId} className="flex flex-col items-center">
+                            <span className="text-[10px] text-gray-400">{p.userName}</span>
+                            <span className="text-lg font-black text-[#FFD700]">{gameState.scores[p.userId] ?? 0}</span>
+                        </div>
+                    ))}
+                </div>
+                <div className="w-full flex flex-col items-center gap-1">
+                    <span className={`text-2xl font-black tabular-nums ${turnTimeLeft <= 10 ? 'text-red-400' : 'text-white'}`}>
+                        {turnTimeLeft}
+                    </span>
+                    <div className="w-full h-2 bg-[#333] rounded-full overflow-hidden">
+                        <div
+                            className={`h-full rounded-full transition-all duration-500 ${turnTimeLeft <= 10 ? 'bg-red-400' : 'bg-[#FFD700]'}`}
+                            style={{ width: `${(turnTimeLeft / 60) * 100}%` }}
+                        />
+                    </div>
+                </div>
+            </div>
+        );
+
         return (
-            <div className="min-h-screen common-bg-style text-white flex flex-col items-center justify-between pt-4 px-4 pb-12 gap-4">
+            <div className="min-h-screen common-bg-style text-white flex flex-col items-center justify-between pt-4 px-2 md:px-4 pb-12 gap-2 md:gap-4">
                 {/* NPC — 상단 */}
                 <PlayerStand
                     name="NPC"
@@ -181,8 +271,8 @@ export default function GameLobbyPage() {
                     characterImg={getCharSrc(3)}
                 />
 
-                {/* 중간 행: 왼쪽 플레이어 | 질문 패널 | 오른쪽 플레이어 */}
-                <div className="flex items-center justify-center gap-6 w-full max-w-4xl">
+                {/* 데스크톱: 왼쪽 플레이어 | 질문 패널 | 오른쪽 플레이어 */}
+                <div className="hidden md:flex items-center justify-center gap-6 w-full max-w-4xl">
                     <div className="flex-1 flex justify-end">
                         {others[0] && (
                             <PlayerStand
@@ -195,68 +285,9 @@ export default function GameLobbyPage() {
                             />
                         )}
                     </div>
-
-                    {/* 중앙 질문/정답/점수 패널 */}
                     <div className="flex-[1.5] flex flex-col items-center gap-3">
-                        <div className="w-full bg-[#1a2a1a] border border-[#FFD700]/30 rounded-2xl p-4 text-center min-h-[120px] flex flex-col items-center justify-center gap-2">
-                            {questionDeckPhase === 'shuffling' && (
-                                <div className="flex flex-col items-center gap-2">
-                                    <div className="relative w-14 h-20">
-                                        {[0, 1, 2].map(i => (
-                                            <div
-                                                key={i}
-                                                className="absolute w-14 h-20 rounded-xl bg-[#1a1a3e] border-2 border-[#FFD700]/70 q-deck-card"
-                                                style={{ top: `${-i * 3}px`, left: `${i * 2}px`, zIndex: i, animationDelay: `${i * 0.09}s` }}
-                                            />
-                                        ))}
-                                        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-                                            <span className="text-[#FFD700] text-2xl font-black">?</span>
-                                        </div>
-                                    </div>
-                                    <p className="text-[#FFD700] text-xs font-bold animate-pulse">힌트 카드 섞는 중...</p>
-                                </div>
-                            )}
-                            {questionDeckPhase === 'drawing' && (
-                                <div className="w-14 h-20 rounded-xl bg-[#1a1a3e] border-2 border-[#FFD700] flex items-center justify-center q-card-draw">
-                                    <span className="text-[#FFD700] text-2xl font-black">?</span>
-                                </div>
-                            )}
-                            {(questionDeckPhase === 'visible' || questionDeckPhase === 'idle') && currentQuestion && (
-                                <div className={questionDeckPhase === 'visible' ? 'q-reveal' : ''}>
-                                    <p className="text-xs text-[#FFD700] font-bold uppercase tracking-widest">Q{currentQuestion.seq}</p>
-                                    <p className="text-sm text-white leading-relaxed mt-1">{currentQuestion.question}</p>
-                                    {currentAnswer !== null && (
-                                        <p className="text-2xl font-black text-[#FFD700] mt-1">{currentAnswer}</p>
-                                    )}
-                                </div>
-                            )}
-                            {questionDeckPhase === 'idle' && !currentQuestion && (
-                                <p className="text-gray-500 text-sm">질문 카드 대기 중...</p>
-                            )}
-                        </div>
-                        <div className="flex gap-4">
-                            {gameState.playerOrder.map(p => (
-                                <div key={p.userId} className="flex flex-col items-center">
-                                    <span className="text-[10px] text-gray-400">{p.userName}</span>
-                                    <span className="text-lg font-black text-[#FFD700]">{gameState.scores[p.userId] ?? 0}</span>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* 턴 타이머 */}
-                        <div className="w-full flex flex-col items-center gap-1">
-                            <span className={`text-2xl font-black tabular-nums ${turnTimeLeft <= 10 ? 'text-red-400' : 'text-white'}`}>
-                                {turnTimeLeft}
-                            </span>
-                            <div className="w-full h-2 bg-[#333] rounded-full overflow-hidden">
-                                <div
-                                    className={`h-full rounded-full transition-all duration-500 ${turnTimeLeft <= 10 ? 'bg-red-400' : 'bg-[#FFD700]'}`}
-                                    style={{ width: `${(turnTimeLeft / 60) * 100}%` }}
-                                />
-                            </div>
-                        </div>
+                        {centerPanel}
                     </div>
-
                     <div className="flex-1 flex justify-start">
                         {others[1] && (
                             <PlayerStand
@@ -271,8 +302,37 @@ export default function GameLobbyPage() {
                     </div>
                 </div>
 
+                {/* 모바일: 질문 패널 → 다른 플레이어 */}
+                <div className="flex md:hidden flex-col items-center gap-3 w-full">
+                    {centerPanel}
+                    {others.length > 0 && (
+                        <div className="flex gap-3 justify-center flex-wrap">
+                            {others[0] && (
+                                <PlayerStand
+                                    name={others[0].userName}
+                                    tiles={gameState.visibleStands[others[0].userId] || []}
+                                    isTurn={activeTurn === others[0].userId}
+                                    collectDir={collectDirs.left}
+                                    dealDir={dealDirs.left}
+                                    characterImg={getCharSrc(gameState.playerOrder.findIndex(p => p.userId === others[0].userId))}
+                                />
+                            )}
+                            {others[1] && (
+                                <PlayerStand
+                                    name={others[1].userName}
+                                    tiles={gameState.visibleStands[others[1].userId] || []}
+                                    isTurn={activeTurn === others[1].userId}
+                                    collectDir={collectDirs.right}
+                                    dealDir={dealDirs.right}
+                                    characterImg={getCharSrc(gameState.playerOrder.findIndex(p => p.userId === others[1].userId))}
+                                />
+                            )}
+                        </div>
+                    )}
+                </div>
+
                 {/* 본인 받침대 (뒷면) + 버튼 — 하단 */}
-                <div className="flex flex-col items-center gap-4">
+                <div className="flex flex-col items-center gap-3 md:gap-4">
                     <PlayerStand
                         name={`${selfName} (나)`}
                         tiles={[]}
@@ -427,50 +487,69 @@ export default function GameLobbyPage() {
                                 />
                             )}
 
-                            {/* 탭 2 — 추론표 */}
+                            {/* 탭 2 — 질문 체크리스트 */}
                             {activeTab === 'logic' && (
-                                <div className="flex flex-col gap-2">
-                                    <div className="flex items-start gap-4 justify-center">
-                                        {/* 숫자 레이블 열 */}
-                                        <div className="flex flex-col gap-1 pt-7">
-                                            {[1, 2, 3, 4, 5, 6, 7].map(n => (
-                                                <div key={n} className="w-6 h-8 flex items-center justify-center text-xs text-gray-500 font-bold">{n}</div>
-                                            ))}
-                                        </div>
-                                        {/* 타일별 열 */}
-                                        {[0, 1, 2].map(col => (
-                                            <div key={col} className="flex flex-col items-center gap-1">
-                                                <span className="text-[10px] text-[#FFD700] font-black mb-1">{col + 1}번</span>
-                                                {[0, 1, 2, 3, 4, 5, 6].map(row => (
-                                                    <button
-                                                        key={row}
-                                                        onClick={() => setLogicGrid(prev =>
-                                                            prev.map((c, ci) => ci === col
-                                                                ? c.map((v, ri) => ri === row ? !v : v)
-                                                                : c
-                                                            )
-                                                        )}
-                                                        className={`w-8 h-8 rounded-lg text-xs font-black transition-all border-2 ${
-                                                            logicGrid[col][row]
-                                                                ? 'bg-[#1a2a1a] border-[#FFD700]/40 text-white hover:border-[#FFD700]'
-                                                                : 'bg-[#2a0a0a] border-red-800/60 text-red-500'
-                                                        }`}
-                                                    >
-                                                        {logicGrid[col][row] ? '○' : '✕'}
-                                                    </button>
-                                                ))}
+                                <div className="flex flex-col divide-y divide-[#1a1a1a]">
+                                    {QUIZ_QUESTIONS.map(q => {
+                                        const isActive = currentQuestion?.seq === q.seq;
+                                        const answer = quizAnswers[q.seq];
+                                        return (
+                                            <div
+                                                key={q.seq}
+                                                className={`flex items-center gap-2 py-1.5 ${isActive ? 'bg-[#FFD700]/10' : ''}`}
+                                            >
+                                                <span className={`text-[10px] font-black w-5 shrink-0 tabular-nums ${isActive ? 'text-[#FFD700]' : 'text-gray-600'}`}>
+                                                    {q.seq}
+                                                </span>
+                                                <span className="text-[10px] text-gray-400 flex-1 truncate min-w-0">{q.label}</span>
+                                                {q.type === 'number' ? (
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        <button
+                                                            onClick={() => setQuizAnswers(prev => {
+                                                                const cur = prev[q.seq];
+                                                                if (!cur || cur === '0') { const n = { ...prev }; delete n[q.seq]; return n; }
+                                                                return { ...prev, [q.seq]: String(Number(cur) - 1) };
+                                                            })}
+                                                            className="w-5 h-5 rounded bg-[#222] text-gray-400 text-xs hover:bg-[#333] flex items-center justify-center leading-none"
+                                                        >−</button>
+                                                        <span className={`w-5 text-center text-xs font-black tabular-nums ${answer !== undefined ? 'text-[#FFD700]' : 'text-gray-600'}`}>
+                                                            {answer ?? '—'}
+                                                        </span>
+                                                        <button
+                                                            onClick={() => setQuizAnswers(prev => {
+                                                                const cur = prev[q.seq];
+                                                                return { ...prev, [q.seq]: cur === undefined ? '0' : String(Number(cur) + 1) };
+                                                            })}
+                                                            className="w-5 h-5 rounded bg-[#222] text-gray-400 text-xs hover:bg-[#333] flex items-center justify-center leading-none"
+                                                        >+</button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-0.5 shrink-0">
+                                                        {[
+                                                            { key: 'a', label: q.a },
+                                                            { key: '=', label: '=' },
+                                                            { key: 'b', label: q.b },
+                                                        ].map(opt => (
+                                                            <button
+                                                                key={opt.key}
+                                                                onClick={() => setQuizAnswers(prev => {
+                                                                    if (prev[q.seq] === opt.key) { const n = { ...prev }; delete n[q.seq]; return n; }
+                                                                    return { ...prev, [q.seq]: opt.key };
+                                                                })}
+                                                                className={`h-5 px-1 rounded text-[9px] font-black transition-all ${
+                                                                    answer === opt.key
+                                                                        ? 'bg-[#FFD700] text-black'
+                                                                        : 'bg-[#222] text-gray-400 hover:bg-[#333]'
+                                                                }`}
+                                                            >
+                                                                {opt.label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
-                                        ))}
-                                    </div>
-                                    {/* 초기화 버튼 */}
-                                    <div className="flex justify-end px-2">
-                                        <button
-                                            onClick={() => setLogicGrid(Array.from({ length: 3 }, () => Array(7).fill(true)))}
-                                            className="text-[10px] text-gray-500 hover:text-gray-300 transition-colors"
-                                        >
-                                            초기화
-                                        </button>
-                                    </div>
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
